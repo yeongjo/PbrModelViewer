@@ -1,16 +1,10 @@
+#pragma once
+#include "stdafx.h"
 
-#include <iostream>
-#include <sstream>
-#include <glew.h>
-#include <freeglut.h>
-#include <ext.hpp>
-#include <gtc/matrix_transform.hpp>
-#include <vector>
-#include <map>
-#include <algorithm>
-
+#ifndef TINYOBJLOADER_IMPLEMENTATION
 #define TINYOBJLOADER_IMPLEMENTATION // define this in only *one* .cc
-#include "tiny_obj_loader.h"
+#include "inc/tiny_obj_loader.h"
+#endif
 
 using namespace std;
 using namespace glm;

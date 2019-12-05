@@ -1,11 +1,9 @@
 #pragma once
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
-#include "inc/mGlHeader2.h"
+#include "mGlHeader.h"
 #include "../glm/gtx/string_cast.hpp"
-#include <map>
-#include <set>
-#include <queue>
+
 
 
 GLclampf f() {
@@ -194,7 +192,7 @@ public:
 	}
 
 	void log() {
-		//debug("[id:%d]%s: %s", uniformLocation, uniformName.c_str(), glm::to_string(*valuePtr).c_str());
+		debug("[id:%d]%s: %s", uniformLocation, uniformName.c_str(), glm::to_string(*valuePtr).c_str());
 	}
 private:
 	void setData(T* ptr) {
@@ -215,6 +213,15 @@ void ShaderUniform<TextureBindInfo>::setData(void* ptr) {
 
 	//setData(t);
 	glUniform1i(uniformLocation, t->activeIdx);
+}
+
+template<>
+void ShaderUniform<TextureBindInfo>::log() {
+	debug("[id:%d]%s: id: %d, bind: %d", uniformLocation, uniformName.c_str(), valuePtr->id, valuePtr->activeIdx - GL_TEXTURE0);
+}
+template<>
+void ShaderUniform<int>::log() {
+	debug("[id:%d]%s: %d", uniformLocation, uniformName.c_str(), valuePtr);
 }
 
 template<>
@@ -641,6 +648,7 @@ enum EMouse {
 	MOUSE_NORMALIZE_X, MOUSE_NORMALIZE_Y,
 	MOUSE_NORMALIZE_OFF_X, MOUSE_NORMALIZE_OFF_Y, // ¾È¸¸µë
 	MOUSE_L_BUTTON,MOUSE_R_BUTTON,MOUSE_M_BUTTON,
+	MOUSE_WHEEL,
 	COUNT
 };
 
@@ -746,6 +754,7 @@ void specialInput(int key, int x, int y) {
 
 void mouseWheel(int wheel, int direction, int x, int y) {
 	debug("Mouse: wheel(%d), direction(%d)", wheel, direction);
+	Input::mouse[EMouse::MOUSE_WHEEL] += direction;
 }
 
 void setMousePos(int x, int y) {
@@ -779,7 +788,44 @@ void bindInput() {
 	glutPassiveMotionFunc(mouseMotionHandler);
 	glutSpecialFunc(specialInput);
 	glutMouseWheelFunc(mouseWheel);
+
+	Input::mouse[EMouse::MOUSE_WHEEL] = 0;
 }
+
+
+
+
+
+unsigned int quadVAO = 0;
+unsigned int quadVBO;
+void renderQuad() {
+	if (quadVAO == 0) {
+		float quadVertices[] = {
+			// positions        // texture Coords
+			-1.0f, 1.0f, 0.0f, 0.0f, 1.0f,
+			-1.0f, -1.0f, 0.0f, 0.0f, 0.0f,
+			1.0f, 1.0f, 0.0f, 1.0f, 1.0f,
+			1.0f, -1.0f, 0.0f, 1.0f, 0.0f,
+		};
+		// setup plane VAO
+		glGenVertexArrays(1, &quadVAO);
+		glGenBuffers(1, &quadVBO);
+		glBindVertexArray(quadVAO);
+		glBindBuffer(GL_ARRAY_BUFFER, quadVBO);
+		glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), &quadVertices, GL_STATIC_DRAW);
+		glEnableVertexAttribArray(0);
+		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
+		glEnableVertexAttribArray(1);
+		glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
+	}
+	glBindVertexArray(quadVAO);
+	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+	glBindVertexArray(0);
+}
+
+
+
+
 
 mat4 mat4_1 = mat4(1);
 

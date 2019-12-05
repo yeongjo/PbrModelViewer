@@ -1,8 +1,9 @@
-﻿#include "inc/ToolModule.h"
+﻿#include "stdafx.h"
+#include "FrameBuffer.cpp"
 #include "inc/bullet.h"
-#include "../GL/GLDebugDrawer.h"
+//#include "../GL/GLDebugDrawer.h"
 
-GLDebugDrawer	gDebugDrawer;
+//GLDebugDrawer	gDebugDrawer;
 
 
 
@@ -220,7 +221,9 @@ vector<Orbit*> orbits;
 vector<Obj*> objs;
 vector<JohnSnow*> johnSnow;
 
-Shader triShader, gridShader, stageShader;
+FrameBuffer frameBuffer;
+TextureRenderer texRenderer;
+Shader triShader, gridShader, frameShader;
 
 Texture texture0;
 
@@ -273,12 +276,22 @@ void onKeyboard(unsigned char key, int x, int y, bool isDown) {
 void init() {
 	glLineWidth(3);
 
+	frameBuffer.init(win.w, win.h);
+
 	triShader.complieShader("tri");
 	gridShader.complieShader("grid");
+	frameShader.complieShader("postprocess");
+
+	texRenderer.setShader(frameShader);
+	texRenderer.setTexture(frameBuffer.colorBuffer);
+	texRenderer.init();
+
+
 
 	glEnable(GL_BLEND);
-	//glBlendColor(0.2f, 0.5, 0.7f, 0.5f);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+
 
 	cam = new Camera();
 	cam->armVector.z = -20;
@@ -389,8 +402,11 @@ void loop() {
 	prevTime = thisTickTime;
 
 	cam->tick(dt);
-	cam->getRotation().x += dt * 10 * Input::mouse[EMouse::MOUSE_OFF_Y];
-	cam->getRotation().y += dt * 10 * Input::mouse[EMouse::MOUSE_OFF_X];
+	if (Input::mouse[EMouse::MOUSE_L_BUTTON]) {
+		cam->getRotation().x += dt * 10 * Input::mouse[EMouse::MOUSE_OFF_Y];
+		cam->getRotation().y += dt * 10 * Input::mouse[EMouse::MOUSE_OFF_X];
+	}
+	cam->armVector.z = clamp(-10 + Input::mouse[EMouse::MOUSE_WHEEL], -100, -1);
 
 	Bullet::dynamicsWorld->stepSimulation(dt, 10);
 	Scene::activeScene->tick(dt);
@@ -405,6 +421,8 @@ GLvoid drawScene()
 	float gray = 0.3f;
 	glClearColor(gray, gray, gray, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	frameBuffer.bind();
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 	cam->bind(win);
 	Scene::activeScene->render();
@@ -413,7 +431,11 @@ GLvoid drawScene()
 	gridVO.render();
 
 	Debug::render();
-	Bullet::dynamicsWorld->debugDrawWorld();
+	/*Bullet::dynamicsWorld->debugDrawWorld();*/
+
+	frameBuffer.unbind();
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	texRenderer.render();
 
 	glutSwapBuffers(); // 화면에 출력하기
 }
@@ -454,8 +476,8 @@ void main(int argc, char** argv) // 윈도우 출력하고 콜백함수 설정
 	unlit.addUniform("color", new vec3(1,0,1));
 	unlit.addUniform("trans", new mat4(1));
 	Bullet::initBullet();
-	gDebugDrawer.setDebugMode(~0);
-	Bullet::dynamicsWorld->setDebugDrawer(&gDebugDrawer);
+	//gDebugDrawer.setDebugMode(~0);
+	//Bullet::dynamicsWorld->setDebugDrawer(&gDebugDrawer);
 	init();
 
 	glutDisplayFunc(drawScene); // 출력 함수의 지정
