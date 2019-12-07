@@ -221,9 +221,8 @@ vector<Orbit*> orbits;
 vector<Obj*> objs;
 vector<JohnSnow*> johnSnow;
 
-FrameBuffer frameBuffer;
-TextureRenderer texRenderer;
-Shader triShader, gridShader, frameShader;
+
+Shader triShader, gridShader;
 
 Texture texture0;
 
@@ -276,15 +275,11 @@ void onKeyboard(unsigned char key, int x, int y, bool isDown) {
 void init() {
 	glLineWidth(3);
 
-	frameBuffer.init(win.w, win.h);
 
 	triShader.complieShader("tri");
 	gridShader.complieShader("grid");
-	frameShader.complieShader("postprocess");
 
-	texRenderer.setShader(frameShader);
-	texRenderer.setTexture(frameBuffer.colorBuffer);
-	texRenderer.init();
+	
 
 
 
@@ -369,6 +364,10 @@ void init() {
 		objs.back()->setShader(&triShader);
 	}
 
+
+	sterma::Init();
+
+
 	gridVO.drawStyle = GL_LINES;
 	gridVO.vertex.push_back(vec3(0, 100, 0));
 	gridVO.vertex.push_back(vec3(0, -100, 0));
@@ -421,21 +420,29 @@ GLvoid drawScene()
 	float gray = 0.3f;
 	glClearColor(gray, gray, gray, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	frameBuffer.bind();
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 	cam->bind(win);
+
+	// 텍스처버퍼에 그림
+	// -----------------
+	sterma::bind();
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
 	Scene::activeScene->render();
 
 	gridShader.use();
 	gridVO.render();
-
+	 
 	Debug::render();
 	/*Bullet::dynamicsWorld->debugDrawWorld();*/
 
-	frameBuffer.unbind();
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	texRenderer.render();
+	sterma::unbind();
+	// -----------------
+
+	sterma::render();
+
+
+	
 
 	glutSwapBuffers(); // 화면에 출력하기
 }
@@ -446,7 +453,7 @@ void timerFunc(int v) {
 	if (!looping)
 		glutTimerFunc(10, timerFunc, 0);
 }
-
+ 
 GLvoid drawScene(GLvoid);
 GLvoid Reshape(int w, int h);
 

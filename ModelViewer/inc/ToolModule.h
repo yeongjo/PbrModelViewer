@@ -206,13 +206,14 @@ template<>
 void ShaderUniform<TextureBindInfo>::setData(void* ptr) {
 	TextureBindInfo* t = (TextureBindInfo*)ptr;
 
-	if (!isRef && !valuePtr)
+	if (!isRef && !valuePtr) {
 		valuePtr = new TextureBindInfo(*t);
-	valuePtr->id = t->id;
-	valuePtr->activeIdx = t->activeIdx;
+	} else {
+		valuePtr->id = t->id;
+		valuePtr->activeIdx = t->activeIdx;
+	}
 
-	//setData(t);
-	glUniform1i(uniformLocation, t->activeIdx);
+	glUniform1i(uniformLocation, valuePtr->activeIdx);
 }
 
 template<>
@@ -247,7 +248,7 @@ void ShaderUniform<int>::applyUniformByType() {
 template<>
 void ShaderUniform<TextureBindInfo>::applyUniformByType() {
 	
-	glActiveTexture(valuePtr->activeIdx);
+	glActiveTexture(valuePtr->activeIdx + GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, valuePtr->id);
 }
 
@@ -298,7 +299,7 @@ public:
 class Shader {
 	
 
-	unsigned int textureIdx = GL_TEXTURE0;
+	unsigned int textureIdx = 0;
 public:
 	unsigned int id;
 	map<string, IShaderUniform*> shaderUniforms;
@@ -367,6 +368,10 @@ public:
 			}
 	}
 
+	void pureUse() {
+		glUseProgram(id);
+	}
+
 	// log¿ë
 	void logAllUniforms() {
 		if (!shaderUniforms.empty())
@@ -403,6 +408,7 @@ private:
 		}else {
 			uniform = new ShaderUniform<T>(isRef);
 		}
+		pureUse();
 		uniform->setName(id, name);
 		uniform->setData(ptr);
 		shaderUniforms.insert(make_pair(name, uniform));
