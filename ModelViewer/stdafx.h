@@ -11,4 +11,6 @@
 #include <ext.hpp>
 #include <gtc/matrix_transform.hpp>
 
-
+#include <imgui.h>
+#include <imgui_impl_glut.h>
+#include <imgui_impl_opengl3.h>

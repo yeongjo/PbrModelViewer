@@ -693,6 +693,7 @@ void (*onKeyboardEvent)(unsigned char key, int x, int y, bool isDown) = NULL;
 
 void Keyboard(unsigned char key, int x, int y) {
 	//debug("Keyboard down: %c [x:%d, y:%d]", key, x, y);
+	ImGui_ImplGLUT_KeyboardFunc(key, x, y);
 	if (Input::key[key] == 1) return;
 	switch (key) {
 	case 'w':
@@ -717,6 +718,7 @@ void Keyboard(unsigned char key, int x, int y) {
 
 void keyboardUp(unsigned char key, int x, int y) {
 	//debug("Keyboard up: %c [x:%d, y:%d]", key, x, y);
+	ImGui_ImplGLUT_KeyboardUpFunc(key, x, y);
 	Input::key[key] = 0;
 	switch (key) {
 	case 'w':
@@ -760,6 +762,7 @@ void specialInput(int key, int x, int y) {
 
 void mouseWheel(int wheel, int direction, int x, int y) {
 	debug("Mouse: wheel(%d), direction(%d)", wheel, direction);
+	ImGui_ImplGLUT_MouseWheelFunc(wheel, direction, x, y);
 	Input::mouse[EMouse::MOUSE_WHEEL] += direction;
 }
 
@@ -778,12 +781,14 @@ void setMousePos(int x, int y) {
 // state: 0(down), 1(up)
 void mouseClickHandler(int button, int state, int x, int y) {
 	debug("mouseClickHandler: button(%d), state(%d)", button, state);
+	ImGui_ImplGLUT_MouseFunc(button, state, x, y);
 	Input::mouse[EMouse::MOUSE_L_BUTTON + button] = !state;
 	//setMousePos(x, y);
 }
 
 void mouseMotionHandler(int x, int y) {
 	//debug("mouseMotionHandler: x(%d), y(%d)", x,y);
+	ImGui_ImplGLUT_MotionFunc(x, y);
 	
 }
 
@@ -794,6 +799,8 @@ void bindInput() {
 	glutPassiveMotionFunc(mouseMotionHandler);
 	glutSpecialFunc(specialInput);
 	glutMouseWheelFunc(mouseWheel);
+
+	glutMotionFunc(ImGui_ImplGLUT_MotionFunc);
 
 	Input::mouse[EMouse::MOUSE_WHEEL] = 0;
 }

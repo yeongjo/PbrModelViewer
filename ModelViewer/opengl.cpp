@@ -6,7 +6,6 @@
 //GLDebugDrawer	gDebugDrawer;
 
 
-
 class PhysicsObj : public Obj {
 public:
 	btRigidBody* body;
@@ -415,6 +414,7 @@ void loop() {
 	glutPostRedisplay();
 }
 
+float a = 0;
 GLvoid drawScene()
 {
 	float gray = 0.3f;
@@ -442,7 +442,37 @@ GLvoid drawScene()
 	sterma::render();
 
 
+
+	// Start the Dear ImGui frame
+	ImGui_ImplOpenGL3_NewFrame();
+	ImGui_ImplGLUT_NewFrame();
 	
+	//
+	ImGui::SetNextWindowPos(ImVec2(650, 20), ImGuiCond_FirstUseEver);
+	ImGui::SetNextWindowSize(ImVec2(300, 680), ImGuiCond_FirstUseEver);
+
+	// Main body of the Demo window starts here.
+	if (!ImGui::Begin("HI")) {
+		// Early out if the window is collapsed, as an optimization.
+		ImGui::End();
+		return;
+	}
+	ImGui::PushItemWidth(ImGui::GetFontSize() * -12);
+
+	{
+		sterma::renderWindow();
+		ImGui::SliderFloat("FrameRounding", &a, 0.0f, 12.0f, "%.2f");
+	}
+	ImGui::End();
+
+	//ImGui::ShowDemoWindow();
+
+	// Rendering
+	ImGui::Render();
+	ImGuiIO& io = ImGui::GetIO();
+	//glViewport(0, 0, (GLsizei)io.DisplaySize.x, (GLsizei)io.DisplaySize.y);
+	//glClear(GL_COLOR_BUFFER_BIT);
+	ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
 	glutSwapBuffers(); // 화면에 출력하기
 }
@@ -476,7 +506,29 @@ void main(int argc, char** argv) // 윈도우 출력하고 콜백함수 설정
 		exit(EXIT_FAILURE);
 	}
 	else
-		std::cout << "GLEW Initialized\n";
+		std::cout << "GLEW Initialized: " << (char*)(glGetString(GL_VERSION)) << "\n";
+
+
+
+	IMGUI_CHECKVERSION();
+	ImGui::CreateContext();
+	ImGuiIO& io = ImGui::GetIO(); (void)io;
+	io.DisplaySize.x = win.w;
+	io.DisplaySize.y = win.h;
+	//io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
+	//io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
+
+	// Setup Dear ImGui style
+	ImGui::StyleColorsDark();
+	//ImGui::StyleColorsClassic();
+
+	const char* glsl_version = "#version 330";
+	// Setup Platform/Renderer bindings
+	ImGui_ImplGLUT_Init();
+	ImGui_ImplGLUT_InstallFuncs();
+	ImGui_ImplOpenGL3_Init(glsl_version);
+
+
 
 	Shader unlit;
 	unlit.complieShader("unlit");
@@ -501,4 +553,11 @@ void main(int argc, char** argv) // 윈도우 출력하고 콜백함수 설정
 GLvoid Reshape(int w, int h) {
 	printf("Reshape\n");
 	glViewport(0, 0, w, h);
+	ImGui_ImplGLUT_ReshapeFunc(w, h);
+}
+
+void exit() {
+	ImGui_ImplOpenGL3_Shutdown();
+	ImGui_ImplGLUT_Shutdown();
+	ImGui::DestroyContext();
 }
