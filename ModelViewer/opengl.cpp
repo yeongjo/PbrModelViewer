@@ -6,6 +6,8 @@
 //GLDebugDrawer	gDebugDrawer;
 
 
+Shader triShader, gridShader;
+
 class PhysicsObj : public Obj {
 public:
 	btRigidBody* body;
@@ -75,11 +77,13 @@ public:
 	float length = 20;
 	float delta = 0;
 
+	static int lightCount;
+
 	Light() : Obj() {
-		loadObj("../model/sphere.obj");
-		setShader(Shader::shaders["tri"]);
-		scale = vec3(0.2f);
-		setLightToShader(*shader);
+		loadObj("model/sphere.obj");
+		auto pbr = Shader::get("pbr,pbr");
+		setShader(pbr);
+		//scale = vec3(0.2f);
 	}
 
 	virtual void initName() {
@@ -88,20 +92,26 @@ public:
 
 	void tick(float dt) {
 		if (!isRotating) return;
-		delta += rotSpeed * dt;
+		/*delta += rotSpeed * dt;
 		float x = cos(delta) * length;
 		float z = sin(delta) * length;
 		pos.x = x;
 		pos.y = z;
-		updateTransform();
+		updateTransform();*/
 	}
 
 	void setLightToShader(Shader& shader) {
-		shader.addUniform("ambient", new vec3(0.1f, 0.1f, 0.1f));
-		shader.addUniform("lightPos", &getPos());
-		shader.addUniform("lightColor", &color);
+		//glm::vec3 newPos = pos + glm::vec3(sin( * 5.0) * 5.0, 0.0, 0.0);
+		glm::vec3 newPos = pos;
+		shader.setUniform("lightPositions[" + std::to_string(lightCount) + "]", newPos);
+		shader.setUniform("lightColors[" + std::to_string(lightCount) + "]", color);
+		lightCount++;
+		/*shader.setUniform("ambient", vec3(0.1f, 0.1f, 0.1f));
+		shader.setUniform("lightPos", getPos());
+		shader.setUniform("lightColor", color);*/
 	}
 };
+int Light::lightCount = 0;
 
 class TextureObj : public Obj {
 public:
@@ -109,11 +119,10 @@ public:
 
 	virtual void render() {
 		if (shader) {
-			shader->changeUniformValue("trans", &getTrans());
-			TextureBindInfo tex{texture.id, 0};
-			shader->changeUniformValue("texture0", &texture);
+			shader->setUniform("trans", getTrans());
+			//shader->setUniform("texture0", &texture);
 			shader->use();
-			applyColor(shader->id);
+			applyColor(shader->getId());
 		} else {
 			assert(0 && name.c_str()); // shader 없음
 		}
@@ -144,7 +153,7 @@ public:
 	float speed = 6;
 	virtual void tick(float dt) {
 		updateTransform();
-		rot.y += dt * speed;
+		//rot.y += dt * speed;
 	}
 	void initName() {
 		name = "ShapeObj";
@@ -161,7 +170,7 @@ public:
 
 	mat4 orbitTrans;
 
-	float speed = 2;
+	float speed = 0;
 	float arm = 3;
 
 	void initOrbit() {
@@ -193,7 +202,7 @@ public:
 
 	void render() {
 		if (orbitVO) {
-			shader->changeUniformValue("trans", &orbitTrans);
+			shader->setUniform("trans", orbitTrans);
 			shader->use();
 			orbitVO->render();
 		}
@@ -206,7 +215,6 @@ public:
 };
 
 
-Window win;
 Camera* cam;
 
 VO gridVO;
@@ -215,13 +223,12 @@ VO gridVO;
 ShapeObj* triObj;
 TextureObj* floorObj;
 
-Light* light;
+Light* light[4];
 vector<Orbit*> orbits;
 vector<Obj*> objs;
 vector<JohnSnow*> johnSnow;
 
 
-Shader triShader, gridShader;
 
 Texture texture0;
 
@@ -243,7 +250,7 @@ void onKeyboard(unsigned char key, int x, int y, bool isDown) {
 			break;
 		case '2': {
 		}
-			break;
+				break;
 
 		case 'y':
 			cubeYSpinSpeed = !cubeYSpinSpeed;
@@ -267,71 +274,146 @@ void onKeyboard(unsigned char key, int x, int y, bool isDown) {
 			cam->rotateY(-moveScale);
 			break;
 		}
-		
+
 	}
+}
+
+void initPbr() {
+	auto pbr = Shader::create("pbr", "pbr");
+	auto equirectangular_to_cubemap = Shader::create("cubemap", "equirectangular_to_cubemap");
+	auto irradianceShader = Shader::create("cubemap", "irradiance_convolution");
+	auto prefilterShader = Shader::create("cubemap", "prefilter");
+	auto brdf = Shader::create("brdf", "brdf");
+	auto background = Shader::create("background", "background");
+
+	glEnable(GL_DEPTH_TEST);
+	// set depth function to less than AND equal for skybox depth trick.
+	glDepthFunc(GL_LEQUAL);
+	// enable seamless cubemap sampling for lower mip levels in the pre-filter map.
+	glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
+
+
+	Texture* hdr;
+	hdr = Texture::loadHDR("textures/Road_to_MonumentValley_Ref.hdr");
+
+	Cubemap envCubemap;
+	envCubemap.init(512, 512);
+	envCubemap.convertFromEquirectangular(*hdr, equirectangular_to_cubemap);
+
+	Cubemap irradianceMap;
+	irradianceMap.init(32, 32);
+	irradianceMap.convertFromEquirectangular(envCubemap, irradianceShader);
+
+	Cubemap prefilterMap;
+	prefilterMap.init(128, 128);
+	prefilterMap.quasiMonteCarloSimulation(envCubemap, prefilterShader);
+
+	// pbr: generate a 2D LUT from the BRDF equations used.
+	FrameBuffer temp;
+	auto brdfLUTTexture = Texture::createEmpty(512, 512, GL_RG16F, GL_RG);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	temp.init(*brdfLUTTexture);
+	temp.bind();
+	brdf->use();
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	renderQuad();
+	temp.unbind();
+	// pbr end
+
+	Window::get().resetViewport();
+
+	background->setUniform("environmentMap", envCubemap);
+	pbr->setUniform("irradianceMap", irradianceMap);
+	pbr->setUniform("prefilterMap", prefilterMap);
+	pbr->setUniform("brdfLUT", temp.colorTex);
+	pbr->setUniform("albedo", vec3(0.5f, 0.0f, 0.0f));
+	pbr->setUniform("ao", 1.0f);
+	pbr->setUniform("metallic", 1.0f);
+	pbr->setUniform("roughness", 1.0f);
 }
 
 void init() {
 	glLineWidth(3);
 
 
-	triShader.complieShader("tri");
-	gridShader.complieShader("grid");
+	triShader.complie("tri", "tri");
+	gridShader.complie("grid");
 
-	
+	initPbr();
 
 
 
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	/*glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);*/
 
 
 
 	cam = new Camera();
 	cam->armVector.z = -20;
 
-	light = new Light();
+	glm::vec3 lightPositions[] = {
+		glm::vec3(-10.0f, 10.0f, 10.0f),
+		glm::vec3(10.0f, 10.0f, 10.0f),
+		glm::vec3(-10.0f, -10.0f, 10.0f),
+		glm::vec3(10.0f, -10.0f, 10.0f),
+	};
+	glm::vec3 lightColors[] = {
+		glm::vec3(300.0f, 300.0f, 300.0f),
+		glm::vec3(300.0f, 300.0f, 300.0f),
+		glm::vec3(300.0f, 300.0f, 300.0f),
+		glm::vec3(300.0f, 300.0f, 300.0f)
+	};
 
-	Texture tex1;
-	Texture tex2;
-	Texture tex3;
-	tex1.load("../textures/a.jpg");
-	tex2.load("../textures/b.jpg");
-	tex3.load("../textures/c.jpg");
-	triShader.addUniform("texture0", texture0);
+	
+
+	Texture* tex1;
+	Texture* tex2;
+	Texture* tex3;
+	tex1 = Texture::load("textures/a.jpg");
+	tex2 = Texture::load("textures/b.jpg");
+	tex3 = Texture::load("textures/c.jpg");
+
+	auto pbr = Shader::get("pbr,pbr");
+
+	for (size_t i = 0; i < 4; i++) {
+		light[i] = new Light();
+		light[i]->setPos(lightPositions[i]);
+		light[i]->color = lightColors[i];
+		light[i]->setLightToShader(*pbr);
+	}
 
 	triObj = new ShapeObj();
 	floorObj = new TextureObj();
 
-	floorObj->loadObj("../model/cube.obj");
-	triObj->loadObj("../model/tri.obj");
+	floorObj->loadObj("model/cube.obj");
+	triObj->loadObj("model/cube.obj");
 
-	floorObj->setShader(&triShader);
-	triObj->setShader(&triShader);
-	floorObj->texture = tex1;
-	triObj->texture = tex2;
+	floorObj->setShader(pbr);
+	triObj->setShader(pbr);
+	floorObj->texture = *tex1;
+	triObj->texture = *tex2;
 
 	floorObj->setScale(vec3(5, 0.1f, 5));
-	floorObj->getPos().x = -1; 
+	floorObj->getPos().x = -1;
 
 	orbits.push_back(new Orbit());
 	orbits.push_back(new Orbit());
 	orbits.push_back(new Orbit());
-	int armLen = 3;
-	int speed = 1;
+	int armLen = -2;
+	int speed = 0;
 	for (auto var : orbits) {
 		armLen += 2;
-		speed++;
 		var->arm = armLen;
 		var->speed = speed;
-		var->setShader(&triShader);
+		var->setShader(pbr);
 		var->parentObj = triObj;
-		var->loadObj("../model/sphere.obj");
+		var->loadObj("model/sphere.obj");
 		var->color = vec4(f(), f(), f(), f());
-		var->texture = tex3;
+		var->texture = *tex3;
 	}
 
-	for (size_t i = 0; i < 20; i++) {
+	/*for (size_t i = 0; i < 20; i++) {
 		johnSnow.push_back(new JohnSnow());
 		float x = f() * 10 - 5;
 		float y = f() * 1;
@@ -344,10 +426,10 @@ void init() {
 		johnSnow.back()->setScale(vec3(0.3f));
 		johnSnow.back()->setShader(&triShader);
 
-		johnSnow.back()->texture = tex2;
+		johnSnow.back()->texture = *tex2;
 	}
 
-	
+
 	for (size_t i = 0; i < 20; i++) {
 		objs.push_back(new Obj());
 		float x = f() * 10 - 5;
@@ -358,10 +440,10 @@ void init() {
 		string name = "snow";
 		objs.back()->name = name + std::to_string(i);
 		objs.back()->setPos(vec3(x, y, z));
-		objs.back()->setScale(vec3(0.3f, 2,0.3f));
-		objs.back()->color = (vec4(1,1,1,0.3f));
+		objs.back()->setScale(vec3(0.3f, 2, 0.3f));
+		objs.back()->color = (vec4(1, 1, 1, 0.3f));
 		objs.back()->setShader(&triShader);
-	}
+	}*/
 
 
 	sterma::Init();
@@ -385,6 +467,9 @@ void init() {
 }
 
 
+
+
+
 DWORD prevTime = 0;
 DWORD thisTickTime = 0;
 float dt;
@@ -400,7 +485,7 @@ void loop() {
 	prevTime = thisTickTime;
 
 	cam->tick(dt);
-	if (Input::mouse[EMouse::MOUSE_L_BUTTON]) {
+	if (Input::mouse[EMouse::MOUSE_R_BUTTON]) {
 		cam->getRotation().x += dt * 10 * Input::mouse[EMouse::MOUSE_OFF_Y];
 		cam->getRotation().y += dt * 10 * Input::mouse[EMouse::MOUSE_OFF_X];
 	}
@@ -415,13 +500,16 @@ void loop() {
 }
 
 float a = 0;
-GLvoid drawScene()
-{
+float metallic = 0;
+float roughness = 0;
+float ao = 0;
+vec3 albedo = vec3(1);
+GLvoid drawScene() {
 	float gray = 0.3f;
 	glClearColor(gray, gray, gray, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-	cam->bind(win);
+	cam->bind();
 
 	// 텍스처버퍼에 그림
 	// -----------------
@@ -432,24 +520,27 @@ GLvoid drawScene()
 
 	gridShader.use();
 	gridVO.render();
-	 
+
 	Debug::render();
 	/*Bullet::dynamicsWorld->debugDrawWorld();*/
+
+	Shader::get("background,background")->use();
+	renderCube();
 
 	sterma::unbind();
 	// -----------------
 
 	sterma::render();
 
-
+	auto pbr = Shader::get("pbr,pbr");
 
 	// Start the Dear ImGui frame
 	ImGui_ImplOpenGL3_NewFrame();
 	ImGui_ImplGLUT_NewFrame();
-	
+
 	//
-	ImGui::SetNextWindowPos(ImVec2(650, 20), ImGuiCond_FirstUseEver);
-	ImGui::SetNextWindowSize(ImVec2(300, 680), ImGuiCond_FirstUseEver);
+	ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_Once);
+	ImGui::SetNextWindowSize(ImVec2(150, 680), ImGuiCond_Once);
 
 	// Main body of the Demo window starts here.
 	if (!ImGui::Begin("HI")) {
@@ -457,11 +548,23 @@ GLvoid drawScene()
 		ImGui::End();
 		return;
 	}
-	ImGui::PushItemWidth(ImGui::GetFontSize() * -12);
-
+	//ImGui::PushItemWidth(ImGui::GetFontSize() * -12);
 	{
+		if (ImGui::Button("shader recomplie")) {
+			ImGui::LogToClipboard();
+			ImGui::LogText("Hello, world!");
+			ImGui::LogFinish();
+			pbr->recomplie();
+		}
 		sterma::renderWindow();
-		ImGui::SliderFloat("FrameRounding", &a, 0.0f, 12.0f, "%.2f");
+		ImGui::SliderFloat("metallic", &metallic, 0.0f, 1.0f, "%.2f");
+		ImGui::SliderFloat("roughness", &roughness, 0.0f, 1.0f, "%.2f");
+		ImGui::SliderFloat("ao", &ao, 0.0f, 1.0f, "%.2f");
+		ImGui::ColorEdit3("albedo##3", (float*)&albedo, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel);
+		pbr->setUniform("metallic", metallic);
+		pbr->setUniform("roughness", roughness);
+		pbr->setUniform("ao", ao);
+		pbr->setUniform("albedo", albedo);
 	}
 	ImGui::End();
 
@@ -469,9 +572,6 @@ GLvoid drawScene()
 
 	// Rendering
 	ImGui::Render();
-	ImGuiIO& io = ImGui::GetIO();
-	//glViewport(0, 0, (GLsizei)io.DisplaySize.x, (GLsizei)io.DisplaySize.y);
-	//glClear(GL_COLOR_BUFFER_BIT);
 	ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
 	glutSwapBuffers(); // 화면에 출력하기
@@ -483,7 +583,7 @@ void timerFunc(int v) {
 	if (!looping)
 		glutTimerFunc(10, timerFunc, 0);
 }
- 
+
 GLvoid drawScene(GLvoid);
 GLvoid Reshape(int w, int h);
 
@@ -491,9 +591,9 @@ void main(int argc, char** argv) // 윈도우 출력하고 콜백함수 설정
 { //--- 윈도우 생성하기
 	glutInit(&argc, argv); // glut 초기화
 	glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA | GLUT_DEPTH); // 디스플레이 모드 설정
-	win.init(800, 600);
+	Window win(800, 600);
 	glutInitWindowPosition(0, 30); // 윈도우의 위치 지정
-	glutInitWindowSize(win.w, win.h); // 윈도우의 크기 지정
+	glutInitWindowSize(win.getW(), win.getH()); // 윈도우의 크기 지정
 	glutCreateWindow(__FILE__); // 윈도우 생성(윈도우 이름)
 
 	glEnable(GL_DEPTH_TEST);
@@ -504,8 +604,7 @@ void main(int argc, char** argv) // 윈도우 출력하고 콜백함수 설정
 		std::cerr << "Unable to initialize GLEW" << std::endl;
 
 		exit(EXIT_FAILURE);
-	}
-	else
+	} else
 		std::cout << "GLEW Initialized: " << (char*)(glGetString(GL_VERSION)) << "\n";
 
 
@@ -513,8 +612,8 @@ void main(int argc, char** argv) // 윈도우 출력하고 콜백함수 설정
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
 	ImGuiIO& io = ImGui::GetIO(); (void)io;
-	io.DisplaySize.x = win.w;
-	io.DisplaySize.y = win.h;
+	io.DisplaySize.x = win.getW();
+	io.DisplaySize.y = win.getH();
 	//io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
 	//io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
 
@@ -531,9 +630,9 @@ void main(int argc, char** argv) // 윈도우 출력하고 콜백함수 설정
 
 
 	Shader unlit;
-	unlit.complieShader("unlit");
-	unlit.addUniform("color", new vec3(1,0,1));
-	unlit.addUniform("trans", new mat4(1));
+	unlit.complie("unlit");
+	unlit.setUniform("color", vec3(1, 0, 1));
+	unlit.setUniform("trans", mat4(1));
 	Bullet::initBullet();
 	//gDebugDrawer.setDebugMode(~0);
 	//Bullet::dynamicsWorld->setDebugDrawer(&gDebugDrawer);

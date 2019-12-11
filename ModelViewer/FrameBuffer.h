@@ -4,12 +4,14 @@
 class FrameBuffer {
 public:
 	unsigned int FBO;
-	Texture colorBuffer;
+	Texture colorTex;
 	unsigned int rboDepth;
+	unsigned int w, h;
 
 	void init(int width, int height);
-	void bind();
-	void unbind();
+	void init(const Texture& tex);
+	void bind() const;
+	void unbind() const;
 };
 
 
@@ -86,31 +88,30 @@ namespace sterma {
 
 	Texture* texture;
 
-	vec3 color;
+	vec3 color = vec3(1);
 	bool hdr;
 
 	void Init() {
-		frame.init(Window::get().w, Window::get().h);
+		frame.init(Window::get().getW(), Window::get().getH());
 
 		
-		frameBuffer.init(Window::get().w, Window::get().h);
+		frameBuffer.init(Window::get().getW(), Window::get().getH());
 
 
-		frameShader.complieShader("postprocess");
+		frameShader.complie("postprocess");
 		texRenderer.setShader(frameShader);
 
 
-		frameShader.addUniform("texture0", frameBuffer.colorBuffer);
+		frameShader.setUniform("texture0", frameBuffer.colorTex);
 		// 너가 추가하면 되는곳
 
-		Texture tex3;
-		tex3.load("../textures/c.jpg");
-		frameShader.addUniform("texture1", tex3);
-		frameShader.addUniform("color", &color);
+		Texture* tex3;
+		tex3 = Texture::load("textures/c.jpg");
+		frameShader.setUniform("texture1", *tex3);
 		//
 
 
-		texRenderer.setTexture(frameBuffer.colorBuffer);
+		texRenderer.setTexture(frameBuffer.colorTex);
 		texRenderer.init();
 	}
 
@@ -130,6 +131,7 @@ namespace sterma {
 
 		frame.unbind();*/
 
+		frameShader.setUniform("color", color);
 
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		texRenderer.render();
@@ -143,7 +145,6 @@ namespace sterma {
 		ImGui::Checkbox("With HDR", &hdr); ImGui::SameLine(); HelpMarker("Currently all this does is to lift the 0..1 limits on dragging widgets.");
 		ImGuiColorEditFlags misc_flags = (hdr ? ImGuiColorEditFlags_HDR : 0) | (drag_and_drop ? 0 : ImGuiColorEditFlags_NoDragDrop) | (alpha_half_preview ? ImGuiColorEditFlags_AlphaPreviewHalf : (alpha_preview ? ImGuiColorEditFlags_AlphaPreview : 0)) | (options_menu ? 0 : ImGuiColorEditFlags_NoOptions);
 
-		ImVec4 temp(color.x, color.y, color.z, 1);
 		ImGui::ColorEdit3("MyColor##3", (float*)&color, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel | misc_flags);
 	}
 

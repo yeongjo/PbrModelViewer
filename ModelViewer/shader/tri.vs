@@ -11,16 +11,17 @@ layout (std140, binding = 0) uniform Camera{
 	vec3 viewPos; // 192 : (16*3=48)+192= 240
 };
 
-uniform mat4 trans;
+uniform mat4 model;
 
 out vec3 normal;
 out vec3 fragPos;
 out vec2 uv;
+out vec3 WorldPos;
 
 void main(){
-	normal = normalize(mat3(transpose(inverse(trans))) * aNormal);
-	normal = aNormal;
+	normal = normalize(mat3(transpose(inverse(model))) * aNormal);
+	WorldPos = pos; 
 	uv = aUv;
-	gl_Position = vp*trans*vec4(pos,1);
-	fragPos = (trans*vec4(pos,1)).xyz;
+	gl_Position = vp*model*vec4(pos,1);
+	fragPos = (model*vec4(pos,1)).xyz;
 }

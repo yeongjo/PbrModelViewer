@@ -19,7 +19,8 @@ uniform vec4 lightColor;
 
 uniform vec4 vcolor;
 
-uniform sampler2D texture0;
+uniform samplerCube texture0;
+//uniform sampler2D texture0;
 
 void main(){
 	
@@ -35,6 +36,8 @@ void main(){
 	//color = lightColor;
 	//return;
 
-	vec3 result = (diffuse+ambient+specular) * vcolor.rgb * texture(texture0, uv).rgb;
+	//vec3 result = (diffuse+ambient+specular) * vcolor.rgb * texture(texture0, uv).rgb;
+	vec3 result = texture(texture0, normal).rgb;
 	color = vec4(result, vcolor.a);
+	//color = vec4(normal, vcolor.a);
 }

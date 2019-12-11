@@ -198,6 +198,26 @@
     <ClInclude Include="stdafx.h" />
     <ClInclude Include="tiny_obj_loader.h" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="shader\background.fs" />
+    <None Include="shader\background.vs" />
+    <None Include="shader\brdf.fs" />
+    <None Include="shader\brdf.vs" />
+    <None Include="shader\cubemap.vs" />
+    <None Include="shader\equirectangular_to_cubemap.fs" />
+    <None Include="shader\grid.fs" />
+    <None Include="shader\grid.vs" />
+    <None Include="shader\irradiance_convolution.fs" />
+    <None Include="shader\pbr.fs" />
+    <None Include="shader\pbr.vs" />
+    <None Include="shader\postprocess.fs" />
+    <None Include="shader\postprocess.vs" />
+    <None Include="shader\prefilter.fs" />
+    <None Include="shader\tri.fs" />
+    <None Include="shader\tri.vs" />
+    <None Include="shader\unlit.fs" />
+    <None Include="shader\unlit.vs" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
