@@ -76,6 +76,7 @@ public:
 	bool isRotating = true;
 	float length = 20;
 	float delta = 0;
+	int idx;
 
 	static int lightCount;
 
@@ -87,7 +88,6 @@ public:
 	}
 
 	virtual void initName() {
-		name = (char*)"Light";
 	}
 
 	void tick(float dt) {
@@ -97,11 +97,16 @@ public:
 		float z = sin(delta) * length;
 		pos.x = x;
 		pos.y = z;
-		updateTransform();*/
+		*/
+		updateTransform();
+		shader->setUniform("lightPositions[" + std::to_string(idx) + "]", pos);
+		shader->setUniform("lightColors[" + std::to_string(idx) + "]", color);
 	}
 
 	void setLightToShader(Shader& shader) {
 		//glm::vec3 newPos = pos + glm::vec3(sin( * 5.0) * 5.0, 0.0, 0.0);
+		idx = lightCount;
+		name = "light"+ std::to_string(idx);
 		glm::vec3 newPos = pos;
 		shader.setUniform("lightPositions[" + std::to_string(lightCount) + "]", newPos);
 		shader.setUniform("lightColors[" + std::to_string(lightCount) + "]", color);
@@ -109,6 +114,12 @@ public:
 		/*shader.setUniform("ambient", vec3(0.1f, 0.1f, 0.1f));
 		shader.setUniform("lightPos", getPos());
 		shader.setUniform("lightColor", color);*/
+	}
+
+	void gui() {
+		ImGui::DragFloat3((name+"pos").c_str(), (float*)&pos);
+		ImGui::ColorEdit3((name+"color").c_str(), (float*)&color, ImGuiColorEditFlags_HDR);
+
 	}
 };
 int Light::lightCount = 0;
@@ -658,7 +669,7 @@ GLvoid drawScene() {
 
 	//
 	ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_Once);
-	ImGui::SetNextWindowSize(ImVec2(150, 680), ImGuiCond_Once);
+	ImGui::SetNextWindowSize(ImVec2(150, 500), ImGuiCond_Once);
 
 	// Main body of the Demo window starts here.
 	if (!ImGui::Begin("HI")) {
@@ -678,11 +689,15 @@ GLvoid drawScene() {
 		ImGui::SliderFloat("metallic", &metallic, 0.0f, 1.0f, "%.2f");
 		ImGui::SliderFloat("roughness", &roughness, 0.0f, 1.0f, "%.2f");
 		ImGui::SliderFloat("ao", &ao, 0.0f, 1.0f, "%.2f");
-		ImGui::ColorEdit3("albedo##3", (float*)&albedo, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel);
+		ImGui::ColorEdit3("albedo##3", (float*)&albedo, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_HDR);
 		pbr->setUniform("metallic", metallic);
 		pbr->setUniform("roughness", roughness);
 		pbr->setUniform("ao", ao);
 		pbr->setUniform("albedo", albedo);
+
+		for (size_t i = 0; i < 4; i++) {
+			light[i]->gui();
+		}
 	}
 	ImGui::End();
 
