@@ -130,7 +130,7 @@ public:
 
 	virtual void render() {
 		if (shader) {
-			shader->setUniform("trans", getTrans());
+			shader->setUniform("model", getTrans());
 			//shader->setUniform("texture0", &texture);
 			shader->use();
 			applyColor(shader->getId());
@@ -140,24 +140,6 @@ public:
 		vo->render();
 	}
 };
-
-class JohnSnow : public TextureObj {
-public:
-	float speed = -2;
-
-	virtual void tick(float dt) {
-		updateTransform();
-		pos.y += dt * speed;
-		if (pos.y < 0) {
-			pos.y = 2;
-		}
-	}
-
-	void initName() {
-		name = (char*)"JohnSnow";
-	}
-};
-
 
 class ShapeObj : public TextureObj {
 public:
@@ -170,59 +152,6 @@ public:
 		name = (char*)"ShapeObj";
 	}
 
-};
-
-class Orbit : public TextureObj {
-public:
-	Obj* parentObj = nullptr;
-	vector<Obj*> childObjs;
-
-	VO* orbitVO = nullptr;
-
-	mat4 orbitTrans;
-
-	float speed = 0;
-	float arm = 3;
-
-	void initOrbit() {
-		orbitVO = new VO();
-
-		for (size_t i = 0; i < 60; i++) {
-			float _x = cos(De2Ra(i * 6)) * arm;
-			float _y = sin(De2Ra(i * 6)) * arm;
-			orbitVO->vertex.push_back(vec3(_x, 0, _y));
-		}
-		orbitVO->bind();
-		orbitVO->drawStyle = GL_LINE_LOOP;
-	}
-
-	virtual void tick(float dt) {
-		pos.x = arm;
-		rot.y += speed;
-		trans = parentObj->getTrans();
-		trans = glm::rotate(trans, glm::radians(rot.x), glm::vec3(1, 0, 0));
-		trans = glm::rotate(trans, glm::radians(rot.y), glm::vec3(0, 1, 0));
-		trans = glm::translate(trans, pos);
-		trans = glm::scale(trans, scale);
-
-		if (parentObj) {
-			orbitTrans = parentObj->getTrans();
-			orbitTrans = glm::rotate(orbitTrans, glm::radians(rot.x), glm::vec3(1, 0, 0));
-		}
-	}
-
-	void render() {
-		if (orbitVO) {
-			shader->setUniform("trans", orbitTrans);
-			shader->use();
-			orbitVO->render();
-		}
-		Obj::render();
-	}
-
-	void initName() {
-		name = (char*)"Orbit";
-	}
 };
 
 	void APIENTRY MessageCallback(GLenum source, GLenum type, GLuint id,
@@ -328,12 +257,10 @@ VO gridVO;
 
 
 ShapeObj* triObj;
+vector<ShapeObj*> orbits;
 TextureObj* floorObj;
 
 Light* light[4];
-vector<Orbit*> orbits;
-vector<Obj*> objs;
-vector<JohnSnow*> johnSnow;
 
 
 
@@ -440,10 +367,11 @@ void initPbr() {
 	pbr->setUniform("ao", 1.0f);
 	pbr->setUniform("metallic", 1.0f);
 	pbr->setUniform("roughness", 1.0f);
-	//pbr->setUniform("albedoMap", *Texture::load("textures/Cerberus_A.png"));
-	/*pbr->setUniform("metallicMap", *Texture::load("textures/Cerberus_M.png"));
+	pbr->setUniform("albedoMap", *Texture::load("textures/Cerberus_A.png"));
+	pbr->setUniform("metallicMap", *Texture::load("textures/Cerberus_M.png"));
 	pbr->setUniform("roughnessMap", *Texture::load("textures/Cerberus_R.png"));
-	pbr->setUniform("normalMap", *Texture::load("textures/Cerberus_N.png"));*/
+	pbr->setUniform("normalMap", *Texture::load("textures/Cerberus_N.png"));
+	pbr->setUniform("aoMap", *Texture::load("textures/Cerberus_AO.png"));
 }
 
 void init() {
@@ -489,14 +417,6 @@ void init() {
 		glm::vec3(300.0f, 300.0f, 300.0f)
 	};
 
-	
-
-	Texture* tex1;
-	Texture* tex2;
-	Texture* tex3;
-	tex1 = Texture::load("textures/a.jpg");
-	tex2 = Texture::load("textures/b.jpg");
-	tex3 = Texture::load("textures/c.jpg");
 
 	auto pbr = Shader::get("pbr,pbr");
 
@@ -508,66 +428,29 @@ void init() {
 	}
 
 	triObj = new ShapeObj();
+	triObj->loadObj("model/gun.obj");
+	triObj->setShader(pbr);
+	triObj->setScale(vec3(9));
 	floorObj = new TextureObj();
 
 	floorObj->loadObj("model/cube.obj");
-	triObj->loadObj("model/cube.obj");
 
 	floorObj->setShader(pbr);
-	triObj->setShader(pbr);
-	floorObj->texture = *tex1;
-	triObj->texture = *tex2;
 
 	floorObj->setScale(vec3(5, 0.1f, 5));
 	floorObj->getPos().x = -1;
 
-	orbits.push_back(new Orbit());
-	orbits.push_back(new Orbit());
-	orbits.push_back(new Orbit());
+	orbits.push_back(new ShapeObj());
+	orbits.push_back(new ShapeObj());
+	orbits.push_back(new ShapeObj());
 	int armLen = -2;
-	int speed = 0;
 	for (auto var : orbits) {
-		armLen += 2;
-		var->arm = armLen;
-		var->speed = speed;
+		armLen += 4;
+		var->setPos(vec3(armLen,0,0));
 		var->setShader(pbr);
-		var->parentObj = triObj;
 		var->loadObj("model/sphere.obj");
 		var->color = vec4(f(), f(), f(), f());
-		var->texture = *tex3;
 	}
-
-	/*for (size_t i = 0; i < 20; i++) {
-		johnSnow.push_back(new JohnSnow());
-		float x = f() * 10 - 5;
-		float y = f() * 1;
-		float z = f() * 10 - 5;
-
-		johnSnow.back()->loadObj("../model/cube.obj");
-		string name = (char*)"snow";
-		johnSnow.back()->name = name + std::to_string(i);
-		johnSnow.back()->setPos(vec3(x, y, z));
-		johnSnow.back()->setScale(vec3(0.3f));
-		johnSnow.back()->setShader(&triShader);
-
-		johnSnow.back()->texture = *tex2;
-	}
-
-
-	for (size_t i = 0; i < 20; i++) {
-		objs.push_back(new Obj());
-		float x = f() * 10 - 5;
-		float y = 0;
-		float z = f() * 10 - 5;
-
-		objs.back()->loadObj("../model/cube.obj");
-		string name = (char*)"snow";
-		objs.back()->name = name + std::to_string(i);
-		objs.back()->setPos(vec3(x, y, z));
-		objs.back()->setScale(vec3(0.3f, 2, 0.3f));
-		objs.back()->color = (vec4(1, 1, 1, 0.3f));
-		objs.back()->setShader(&triShader);
-	}*/
 
 
 	sterma::Init();
@@ -632,7 +515,7 @@ float a = 0;
 float metallic = 0;
 float roughness = 0;
 float ao = 1;
-vec3 albedo = vec3(1);
+vec3 albedo = vec3(0);
 GLvoid drawScene() {
 	float gray = 0.3f;
 	glClearColor(gray, gray, gray, 1.0f);

@@ -19,7 +19,7 @@ void main()
 {
     TexCoords = aTexCoords;
     WorldPos = vec3(model * vec4(aPos, 1.0));
-    Normal = mat3(model) * aNormal;   
+    Normal = normalize(mat3(transpose(inverse(model))) * aNormal);
 
     gl_Position =  vp * vec4(WorldPos, 1.0);
 }
