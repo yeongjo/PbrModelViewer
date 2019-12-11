@@ -164,7 +164,7 @@ public:
 	const int getNrChannels() const { return nrChannels; }
 	const unsigned int getId() const { return id; }
 
-	static Texture* load(const char* path) {
+	static Texture* load(const char* path, unsigned type= GL_RGB, unsigned tagetType= GL_RGB) {
 		auto temp = new Texture();
 		auto& id = temp->id;
 		auto& width = temp->width;
@@ -176,14 +176,14 @@ public:
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);	// set texture wrapping to GL_REPEAT (default wrapping method)
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 		// set texture filtering parameters
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_LINEAR);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 		// load image, create texture and generate mipmaps
 		stbi_set_flip_vertically_on_load(true); // tell stb_image.h to flip loaded texture's on the y-axis.
 		// The FileSystem::getPath(...) is part of the GitHub repository so we can find files on any IDE/platform; replace it with your own image path.
 		unsigned char* data = stbi_load(path, &width, &height, &nrChannels, 0);
 		if (data) {
-			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
+			glTexImage2D(GL_TEXTURE_2D, 0, type, width, height, 0, tagetType, GL_UNSIGNED_BYTE, data);
 			glGenerateMipmap(GL_TEXTURE_2D);
 		} else {
 			assert("Failed to load texture: " && path && 0);
@@ -271,27 +271,94 @@ glm::mat4 Cubemap::captureViews[] =
 	glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(0.0f, -1.0f, 0.0f))
 };
 
-class Shader {
-	struct TextureBindInfo {
-		unsigned int id;
-		unsigned int activeIdx;
-		unsigned int type;
-	};
-
-	class TextureUniform {
-	public:
-		TextureBindInfo textureInfo;
-		string name;
-		void apply() const {
-			glActiveTexture(textureInfo.activeIdx + GL_TEXTURE0);
-			glBindTexture(textureInfo.type, textureInfo.id);
-		}
+class Shader;
+class IUniform {
+protected:
+	int location;
+	string name;
+public:
+	IUniform(const Shader& shader, string& name);
+	void updateLocation(const Shader& shader);
+	int getLocation() const { return location; }
+	virtual void setData(const void*) = 0;
+	virtual void apply() const = 0;
+	const string& getName() const { return name; }
 };
 
+template<class T>
+class Uniform : public IUniform {
+	T data;
+public:
+	Uniform(const Shader& shader, string& name, const T& data):
+		IUniform(shader, name), data(data){}
+	virtual void setData(const void* data) {
+		this->data = *((T*)data);
+	}
+	virtual void apply() const {
+		//assert("정의하지않은 값이 할당되려함" && 0);
+	}
+};
+template<>
+void Uniform<int>::apply() const {
+	if (location == -1) return;
+	glUniform1i(location, data);
+}
+template<>
+void Uniform<float>::apply() const {
+	if (location == -1) return;
+	glUniform1f(location, data);
+}
+template<>
+void Uniform<vec3>::apply() const {
+	if (location == -1) return;
+	glUniform3fv(location, 1, (GLfloat*)&data);
+}
+template<>
+void Uniform<vec4>::apply() const {
+	if (location == -1) return;
+	glUniform4fv(location, 1, (GLfloat*)&data);
+}
+template<>
+void Uniform<mat4>::apply() const {
+	if (location == -1) return;
+	glUniformMatrix4fv(location, 1, GL_FALSE, (const float*)&data);
+}
+
+struct TextureBindInfo {
+	unsigned int id;
+	unsigned int activeIdx;
+	unsigned int type;
+};
+
+class TextureUniform : public IUniform {
+public:
+	TextureBindInfo textureInfo;
+	TextureUniform(const Shader& shader, string& name) :
+		IUniform(shader, name) {
+	}
+	void updateLocation(const Shader& shader) {
+		IUniform::updateLocation(shader);
+		if (location != -1)
+		glUniform1i(location, textureInfo.activeIdx);
+	}
+	virtual void setData(const void* d) {
+		textureInfo = *(TextureBindInfo*)d;
+		if(location != -1)
+		glUniform1i(location, textureInfo.activeIdx);
+	}
+	virtual void apply() const {
+		if (location == -1) return;
+		glActiveTexture(textureInfo.activeIdx + GL_TEXTURE0);
+		glBindTexture(textureInfo.type, textureInfo.id);
+	}
+};
+
+class Shader {
 	unsigned int lastTextureIdx = 0;
 	static int usingId;
 	unsigned int id = 0;
-	map<string, int> uniformLocations;
+
+	std::map<string, IUniform*> uniforms;
 	vector<TextureUniform> texUniforms;
 	string vsPath;
 	string fsPath;
@@ -340,7 +407,17 @@ public:
 
 	void recomplie() {
 		assert(id != 0);
-		id = ::complie(vsPath.c_str(), fsPath.c_str(), id);
+		glDeleteProgram(id);
+		id = ::complie(vsPath.c_str(), fsPath.c_str());
+		pureUse();
+		for (auto begin = uniforms.begin();
+			begin != uniforms.end(); begin++) {
+			begin->second->updateLocation(*this);
+			begin->second->apply();
+		}
+		for (size_t i = 0; i < texUniforms.size(); i++) {
+			texUniforms[i].updateLocation(*this);
+		}
 	}
 
 	void use() const {
@@ -357,17 +434,40 @@ public:
 		}
 	}
 
+	void setUniform(string name, int ptr) {
+		getUniformLocation<int>(name, ptr)->apply();
+	}
+	void setUniform(string name, float ptr) {
+		getUniformLocation<float>(name, ptr)->apply();
+	}
+	void setUniform(string name, const vec3& ptr) {
+		getUniformLocation<vec3>(name, ptr)->apply();
+	}
+	void setUniform(string name, const vec4& ptr) {
+		getUniformLocation<vec4>(name, ptr)->apply();
+	}
+	void setUniform(string name, const mat4& ptr) {
+		getUniformLocation<mat4>(name, ptr)->apply();
+	}
+	void setUniform(string name, Texture ptr) {
+		setTexture(name, ptr);
+	}
+	void setUniform(string name, const Cubemap& ptr) {
+		setTexture(name, ptr, GL_TEXTURE_CUBE_MAP);
+	}
 
 private:
 	// 이름으로 유니폼가져옴
-	int getUniformLocation(string& name) {
+	template<class T>
+	IUniform* getUniformLocation(string name, const T& data) {
 		pureUse();
-		auto findKey = uniformLocations.find(name);
-		if (findKey == uniformLocations.end()) {
-			auto uniformLocation = glGetUniformLocation(id, name.c_str());
-			uniformLocations[name] = uniformLocation;
-			return uniformLocation;
+		auto findKey = uniforms.find(name.c_str());
+		if (findKey == uniforms.end()) {
+			auto temp = new Uniform<T>(*this, name, data);
+			uniforms[name]= temp;
+			return temp;
 		}
+		findKey->second->setData(&data);
 		return findKey->second;
 	}
 
@@ -375,7 +475,7 @@ private:
 	TextureUniform* getTextureUniform(string& name) {
 		pureUse();
 		for (size_t i = 0; i < texUniforms.size(); i++) {
-			if (texUniforms[i].name._Equal(name)) {
+			if (texUniforms[i].getName()._Equal(name)) {
 				return &texUniforms[i];
 			}
 		}
@@ -385,45 +485,18 @@ private:
 	void setTexture(string name, const Texture& ptr, unsigned type= GL_TEXTURE_2D) {
 		auto uniform = getTextureUniform(name);
 		if (uniform) {
+			uniform->textureInfo.id = ptr.getId();
+			uniform->textureInfo.type = type;
 			uniform->apply();
 		} else {
-			TextureUniform temp;
-			temp.name = name;
-			temp.textureInfo = TextureBindInfo{ ptr.getId(), lastTextureIdx, type };
-			auto location = glGetUniformLocation(id, name.c_str());
-			glUniform1i(location, lastTextureIdx);
+			TextureUniform temp(*this, name);
+			auto bindInfo = TextureBindInfo{ ptr.getId(), lastTextureIdx, type };
+			temp.setData(&bindInfo);
 			texUniforms.push_back(temp);
 			++lastTextureIdx;
 		}
 	}
 public:
-	void setUniform(string name, int ptr) {
-		auto location = getUniformLocation(name);
-		glUniform1i(location, ptr);
-	}
-	void setUniform(string name, float ptr) {
-		auto location = getUniformLocation(name);
-		glUniform1f(location, ptr);
-	}
-	void setUniform(string name, const vec3& ptr) {
-		auto location = getUniformLocation(name);
-		glUniform3fv(location, 1, (GLfloat*)&ptr);
-	}
-	void setUniform(string name, const vec4& ptr) {
-		auto location = getUniformLocation(name);
-		glUniform4fv(location, 1, (GLfloat*)&ptr);
-	}
-	void setUniform(string name, const mat4& ptr) {
-		auto location = getUniformLocation(name);
-		glUniformMatrix4fv(location, 1, GL_FALSE, (const float*)&ptr);
-	}
-	void setUniform(string name, const Texture& ptr) {
-		setTexture(name, ptr);
-	}
-	void setUniform(string name, const Cubemap& ptr) {
-		setTexture(name, ptr, GL_TEXTURE_CUBE_MAP);
-	}
-
 	unsigned int getId() const { return id; }
 
 };
@@ -496,13 +569,10 @@ void Cubemap::quasiMonteCarloSimulation(Cubemap& tex, Shader* shader) {
 	}
 	glBindFramebuffer(GL_FRAMEBUFFER, captureFBO);
 	glBindRenderbuffer(GL_RENDERBUFFER, captureRBO);
-	glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, width, height);
 	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, captureRBO);
 
 	shader->setUniform("map", tex);
 	shader->setUniform("projection", captureProjection);
-
-	glViewport(0, 0, width, height);
 
 	shader->use();
 	glBindFramebuffer(GL_FRAMEBUFFER, captureFBO);
@@ -526,6 +596,15 @@ void Cubemap::quasiMonteCarloSimulation(Cubemap& tex, Shader* shader) {
 		}
 	}
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+void IUniform::updateLocation(const Shader& shader) {
+	location = glGetUniformLocation(shader.getId(), name.c_str());
+}
+
+IUniform::IUniform(const Shader& shader, string& name) {
+	this->name = name;
+	updateLocation(shader);
 }
 
 class Obj : public TickObj {

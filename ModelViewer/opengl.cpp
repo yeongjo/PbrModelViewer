@@ -48,7 +48,7 @@ public:
 			quat_2_euler_ogl(q, rot.x, rot.z, rot.y);
 			rot = degrees(rot);
 			
-			/*if (name == "Robot") {
+			/*if (name == (char*)"Robot") {
 				cout << glm::to_string(pos) << endl;
 			}*/
 		}
@@ -87,7 +87,7 @@ public:
 	}
 
 	virtual void initName() {
-		name = "Light";
+		name = (char*)"Light";
 	}
 
 	void tick(float dt) {
@@ -143,7 +143,7 @@ public:
 	}
 
 	void initName() {
-		name = "JohnSnow";
+		name = (char*)"JohnSnow";
 	}
 };
 
@@ -156,7 +156,7 @@ public:
 		//rot.y += dt * speed;
 	}
 	void initName() {
-		name = "ShapeObj";
+		name = (char*)"ShapeObj";
 	}
 
 };
@@ -210,10 +210,106 @@ public:
 	}
 
 	void initName() {
-		name = "Orbit";
+		name = (char*)"Orbit";
 	}
 };
 
+	void APIENTRY MessageCallback(GLenum source, GLenum type, GLuint id,
+		GLenum severity, GLsizei length,
+		const GLchar* msg, const void* data) {
+	char* _source;
+	char* _type;
+	char* _severity;
+
+	switch (source) {
+	case GL_DEBUG_SOURCE_API:
+		_source = (char*)"API";
+		break;
+
+	case GL_DEBUG_SOURCE_WINDOW_SYSTEM:
+		_source = (char*)"WINDOW SYSTEM";
+		break;
+
+	case GL_DEBUG_SOURCE_SHADER_COMPILER:
+		_source = (char*)"SHADER COMPILER";
+		break;
+
+	case GL_DEBUG_SOURCE_THIRD_PARTY:
+		_source = (char*)"THIRD PARTY";
+		break;
+
+	case GL_DEBUG_SOURCE_APPLICATION:
+		_source = (char*)"APPLICATION";
+		break;
+
+	case GL_DEBUG_SOURCE_OTHER:
+		_source = (char*)"UNKNOWN";
+		break;
+
+	default:
+		_source = (char*)"UNKNOWN";
+		break;
+	}
+
+	switch (type) {
+	case GL_DEBUG_TYPE_ERROR:
+		_type = (char*)"ERROR";
+		break;
+
+	case GL_DEBUG_TYPE_DEPRECATED_BEHAVIOR:
+		_type = (char*)"DEPRECATED BEHAVIOR";
+		break;
+
+	case GL_DEBUG_TYPE_UNDEFINED_BEHAVIOR:
+		_type = (char*)"UDEFINED BEHAVIOR";
+		break;
+
+	case GL_DEBUG_TYPE_PORTABILITY:
+		_type = (char*)"PORTABILITY";
+		break;
+
+	case GL_DEBUG_TYPE_PERFORMANCE:
+		_type = (char*)"PERFORMANCE";
+		break;
+
+	case GL_DEBUG_TYPE_OTHER:
+		_type = (char*)"OTHER";
+		break;
+
+	case GL_DEBUG_TYPE_MARKER:
+		_type = (char*)"MARKER";
+		break;
+
+	default:
+		_type = (char*)"UNKNOWN";
+		break;
+	}
+
+	switch (severity) {
+	case GL_DEBUG_SEVERITY_HIGH:
+		_severity = (char*)"HIGH";
+		break;
+
+	case GL_DEBUG_SEVERITY_MEDIUM:
+		_severity = (char*)"MEDIUM";
+		break;
+
+	case GL_DEBUG_SEVERITY_LOW:
+		_severity = (char*)"LOW";
+		break;
+
+	case GL_DEBUG_SEVERITY_NOTIFICATION:
+		_severity = (char*)"NOTIFICATION";
+		break;
+
+	default:
+		_severity = (char*)"UNKNOWN";
+		break;
+	}
+
+	printf("%d: %s of %s severity, raised from %s: %s\n",
+		id, _type, _severity, _source, msg);
+}
 
 Camera* cam;
 
@@ -306,6 +402,8 @@ void initPbr() {
 
 	Cubemap prefilterMap;
 	prefilterMap.init(128, 128);
+	// generate mipmaps for the cubemap so OpenGL automatically allocates the required memory.
+	glGenerateMipmap(GL_TEXTURE_CUBE_MAP);
 	prefilterMap.quasiMonteCarloSimulation(envCubemap, prefilterShader);
 
 	// pbr: generate a 2D LUT from the BRDF equations used.
@@ -324,13 +422,17 @@ void initPbr() {
 	Window::get().resetViewport();
 
 	background->setUniform("environmentMap", envCubemap);
-	pbr->setUniform("irradianceMap", irradianceMap);
 	pbr->setUniform("prefilterMap", prefilterMap);
+	pbr->setUniform("irradianceMap", irradianceMap);
 	pbr->setUniform("brdfLUT", temp.colorTex);
 	pbr->setUniform("albedo", vec3(0.5f, 0.0f, 0.0f));
 	pbr->setUniform("ao", 1.0f);
 	pbr->setUniform("metallic", 1.0f);
 	pbr->setUniform("roughness", 1.0f);
+	//pbr->setUniform("albedoMap", *Texture::load("textures/Cerberus_A.png"));
+	/*pbr->setUniform("metallicMap", *Texture::load("textures/Cerberus_M.png"));
+	pbr->setUniform("roughnessMap", *Texture::load("textures/Cerberus_R.png"));
+	pbr->setUniform("normalMap", *Texture::load("textures/Cerberus_N.png"));*/
 }
 
 void init() {
@@ -347,6 +449,17 @@ void init() {
 	/*glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);*/
 
+	// During init, enable debug output
+	glEnable(GL_DEBUG_OUTPUT);
+	glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
+	glDebugMessageCallback(MessageCallback, 0);
+	GLuint unusedIds = 0;
+	glDebugMessageControl(GL_DONT_CARE,
+		GL_DONT_CARE,
+		GL_DONT_CARE,
+		0,
+		&unusedIds,
+		true);
 
 
 	cam = new Camera();
@@ -420,7 +533,7 @@ void init() {
 		float z = f() * 10 - 5;
 
 		johnSnow.back()->loadObj("../model/cube.obj");
-		string name = "snow";
+		string name = (char*)"snow";
 		johnSnow.back()->name = name + std::to_string(i);
 		johnSnow.back()->setPos(vec3(x, y, z));
 		johnSnow.back()->setScale(vec3(0.3f));
@@ -437,7 +550,7 @@ void init() {
 		float z = f() * 10 - 5;
 
 		objs.back()->loadObj("../model/cube.obj");
-		string name = "snow";
+		string name = (char*)"snow";
 		objs.back()->name = name + std::to_string(i);
 		objs.back()->setPos(vec3(x, y, z));
 		objs.back()->setScale(vec3(0.3f, 2, 0.3f));
@@ -496,13 +609,18 @@ void loop() {
 
 	Input::getMousePos();
 
+	GLenum err;
+	while ((err = glGetError()) != GL_NO_ERROR) {
+		// Process/log the error.
+	}
+
 	glutPostRedisplay();
 }
 
 float a = 0;
 float metallic = 0;
 float roughness = 0;
-float ao = 0;
+float ao = 1;
 vec3 albedo = vec3(1);
 GLvoid drawScene() {
 	float gray = 0.3f;
@@ -594,7 +712,11 @@ void main(int argc, char** argv) // 윈도우 출력하고 콜백함수 설정
 	Window win(800, 600);
 	glutInitWindowPosition(0, 30); // 윈도우의 위치 지정
 	glutInitWindowSize(win.getW(), win.getH()); // 윈도우의 크기 지정
-	glutCreateWindow(__FILE__); // 윈도우 생성(윈도우 이름)
+	glutInitContextFlags(GLUT_FORWARD_COMPATIBLE
+#if _DEBUG
+		| GLUT_DEBUG
+#endif
+	); glutCreateWindow(__FILE__); // 윈도우 생성(윈도우 이름)
 
 	glEnable(GL_DEPTH_TEST);
 	//glEnable(GL_CULL_FACE);
@@ -621,7 +743,7 @@ void main(int argc, char** argv) // 윈도우 출력하고 콜백함수 설정
 	ImGui::StyleColorsDark();
 	//ImGui::StyleColorsClassic();
 
-	const char* glsl_version = "#version 330";
+	const char* glsl_version = (char*)"#version 330";
 	// Setup Platform/Renderer bindings
 	ImGui_ImplGLUT_Init();
 	ImGui_ImplGLUT_InstallFuncs();
