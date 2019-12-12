@@ -54,6 +54,7 @@
       <Filter>imgui</Filter>
     </ClInclude>
     <ClInclude Include="mGlHeader.h" />
+    <ClInclude Include="portable-file-dialog.h" />
   </ItemGroup>
   <ItemGroup>
     <Filter Include="imgui">

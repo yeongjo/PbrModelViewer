@@ -7,9 +7,7 @@ in vec3 Normal;
 // material parameters
 uniform sampler2D albedoMap;
 uniform sampler2D normalMap;
-uniform sampler2D metallicMap;
-uniform sampler2D roughnessMap;
-uniform sampler2D aoMap;
+uniform sampler2D ao_r_m;
 // material parameters
 uniform vec3 albedo;
 uniform float metallic;
@@ -99,9 +97,10 @@ vec3 fresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness)
 void main()
 {		
 	vec3  _albedo = albedo + pow(texture(albedoMap, TexCoords).rgb, vec3(2.2));
-    float _metallic = metallic + texture(metallicMap, TexCoords).r;
-    float _roughness = roughness + texture(roughnessMap, TexCoords).r;
-    float _ao = ao + texture(aoMap, TexCoords).r;
+	vec3 temp = texture(ao_r_m, TexCoords).rgb;
+    float _metallic = metallic + temp.b;
+    float _roughness = roughness + temp.g;
+    float _ao = ao + temp.r;
 
     vec3 N = Normal;//getNormalFromMap();
     vec3 V = normalize(viewPos - WorldPos);

@@ -62,11 +62,11 @@ Window* Window::active = nullptr;
 class TickObj;
 class Scene {
 public:
-	set<TickObj*> objs;
+	vector<TickObj*> objs;
 
 	void tick(float dt);
-
 	void render();
+	void gui();
 
 	void active() {
 		activeScene = this;
@@ -81,12 +81,7 @@ public:
 	}
 
 	static void addObj(TickObj* obj) {
-		Scene::self().objs.insert(obj);
-	}
-
-	queue<TickObj*> removeObjs;
-	static void removeObj(TickObj* obj) {
-		Scene::self().removeObjs.push(obj);
+		Scene::self().objs.push_back(obj);
 	}
 };
 
@@ -95,30 +90,67 @@ Scene* Scene::activeScene = nullptr;
 
 
 class TickObj {
+	bool bIsRemoved = false;
+	static int uniqueIdCounter;
+protected:
+	int uniqueId;
 public:
-	TickObj() { Scene::addObj(this); }
-	virtual ~TickObj() {}
+	string name;
+
+	TickObj() { uniqueId = uniqueIdCounter++;  Scene::addObj(this); }
+	void remove(){ bIsRemoved = true; }
+	bool getIsRemoved() const { return bIsRemoved; }
 	virtual void tick(float dt) = 0;
 	virtual void render() = 0;
-	virtual void initName() {}
+
+	virtual bool guiStart() {
+		auto tree = ImGui::TreeNode((std::to_string(uniqueId) + name).c_str());
+		
+		if (tree) {
+			ImGui::SameLine(150);
+			if (ImGui::Button("delete")) {
+				this->remove();
+			}
+			return true;
+		}
+		return false;
+	}
+
+	virtual void gui() {
+		if (guiStart()) {
+			ImGui::TreePop();
+		}
+	}
 };
+int TickObj::uniqueIdCounter = 0;
 
 
 void Scene::tick(float dt) {
-	for (set<TickObj*>::iterator it = objs.begin(); it != objs.end(); ++it) {
-		(*it)->tick(dt);
-	}
-	while (Scene::self().removeObjs.size()) {
-		auto t = removeObjs.front();
-		objs.erase(t);
-		delete t;
-		removeObjs.pop();
+	auto size = objs.size();
+	for (size_t i = 0; i < size; ++i) {
+		auto cache = objs[i];
+		if (cache->getIsRemoved()) {
+			--size;
+			objs.erase(objs.begin() + i);
+			delete cache;
+			continue;
+		}
+
+		cache->tick(dt);
 	}
 }
 
 void Scene::render() {
-	for (set<TickObj*>::iterator it = objs.begin(); it != objs.end(); ++it) {
-		(*it)->render();
+	auto size = objs.size();
+	for (size_t i = 0; i < size; ++i) {
+		objs[i]->render();
+	}
+}
+
+void Scene::gui() {
+	auto size = objs.size();
+	for (size_t i = 0; i < size; ++i) {
+		objs[i]->gui();
 	}
 }
 
@@ -183,7 +215,10 @@ public:
 		// The FileSystem::getPath(...) is part of the GitHub repository so we can find files on any IDE/platform; replace it with your own image path.
 		unsigned char* data = stbi_load(path, &width, &height, &nrChannels, 0);
 		if (data) {
-			glTexImage2D(GL_TEXTURE_2D, 0, type, width, height, 0, tagetType, GL_UNSIGNED_BYTE, data);
+			if(nrChannels == 3)
+				glTexImage2D(GL_TEXTURE_2D, 0, type, width, height, 0, tagetType, GL_UNSIGNED_BYTE, data);
+			else if (nrChannels == 4)
+				glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
 			glGenerateMipmap(GL_TEXTURE_2D);
 		} else {
 			assert("Failed to load texture: " && path && 0);
@@ -396,13 +431,11 @@ public:
 		stringstream ss;
 		ss << vs << "," << fs;
 
-		auto find = shaders.insert(pair<string, Shader*>(ss.str(), this));
+		auto find = shaders.insert(make_pair<string, Shader*>(ss.str(), this));
 		if (!find.second) {
 			assert(0 && vs && fs); //vs fs에 경로가 없음
 		}
 		id = ::complie(vs, fs);
-
-		shaders.insert(pair<string, Shader*>(ss.str(), this));
 	}
 
 	void recomplie() {
@@ -610,19 +643,12 @@ IUniform::IUniform(const Shader& shader, string& name) {
 class Obj : public TickObj {
 protected:
 	Obj* parentObj = nullptr;
-public:
-	VO* vo;
-
+	glm::mat4 trans = glm::mat4(1.0f);
 	Shader* shader = nullptr;
 
-	glm::mat4 trans = glm::mat4(1.0f);
+public:
+	VO* vo = nullptr;
 	vec3 color = vec3(1);
-
-	string name;
-
-	virtual void initName() {
-		name = "Obj";
-	}
 
 	// call after this have verteies
 	void loadObj(const char* path) {
@@ -630,77 +656,39 @@ public:
 		vo->bind();
 	}
 
-	void destroy() {
-		Scene::removeObj(this);
-	}
-
-	vec3& getPos() {
-		return pos;
-	}
-
-	vec3& getRotation() {
-		return rot;
-	}
-
-	vec3& getScale() {
-		return scale;
-	}
-
-	void setPos(const vec3& p) {
-		pos = p; bIsGetTransInThisTick = false;
-	}
-	void setRotation(const vec3& r) {
-		rot = r; bIsGetTransInThisTick = false;
-	}
-	void setScale(const vec3& s) {
-		scale = s; bIsGetTransInThisTick = false;
-	}
-
-	void setParent(Obj* parent) {
-		assert(parent != this);
-		parentObj = parent;
-	}
-	Obj* GetParent() {
-		return parentObj;
-	}
-
-	void setShader(Shader* shader) {
-		this->shader = shader;
-		shader->setUniform("model", getTrans());
-	}
-
-	void rotateX(float x) {
-		bIsGetTransInThisTick = false; rot.x += x;
-	}
-	void rotateY(float y) {
-		bIsGetTransInThisTick = false; rot.y += y;
-	}
-	void rotateZ(float z) {
-		bIsGetTransInThisTick = false; rot.z += z;
-	}
-
-	void updateTransform() {
-		bIsGetTransInThisTick = false;
-	}
-
 	vec3 getForward() {
 		vec3 forward;
 		forward.x = sin(glm::radians(rot.y));
-		forward.y = -tan(glm::radians(rot.x));
+		forward.y = tan(glm::radians(rot.x));
 		forward.z = cos(glm::radians(rot.y));
 		return forward;
 	}
 
+	vec3 getRight() {
+		vec3 right;
+		right.x = sin(glm::radians(rot.y+90));
+		right.y = tan(glm::radians(rot.x));
+		right.z = cos(glm::radians(rot.y + 90));
+		return right;
+	}
+
+	vec3 getUp() {
+		vec3 up;
+		up.x = sin(glm::radians(rot.y));
+		up.y = tan(glm::radians(rot.x+90));
+		up.z = cos(glm::radians(rot.y));
+		return up;
+	}
+
 	glm::mat4& getTrans() {
 		if (bIsGetTransInThisTick) return trans;
-		trans = glm::mat4(1.0f);
+		if (parentObj) trans = parentObj->getTrans();
+		else trans = mat4(1);
 		trans = glm::translate(trans, pos);
-		trans = glm::scale(trans, scale);
 		trans = glm::rotate(trans, glm::radians(rot.y), glm::vec3(0.0, 1, 0));
 		trans = glm::rotate(trans, glm::radians(rot.z), glm::vec3(0.0, 0.0, 1.0));
 		trans = glm::rotate(trans, glm::radians(rot.x), glm::vec3(1, 0.0, 0));
-		if (parentObj)
-			trans = parentObj->getTrans() * trans;
+		trans = glm::scale(trans, scale);
 		bIsGetTransInThisTick = true;
 		return trans;
 	}
@@ -709,19 +697,21 @@ public:
 		updateTransform();
 	}
 
-	void applyColor(GLuint shaderId) {
-		unsigned int loc = glGetUniformLocation(shaderId, "vcolor");
-		glUniform3f(loc, color.x, color.y, color.z);
+	virtual bool guiStart() {
+		if (TickObj::guiStart()) {
+			ImGui::DragFloat3("pos", (float*)&pos, 0.04f, 0, 0, "%.2f");
+			ImGui::DragFloat3("rot", (float*)&rot, 1, 0, 0, "%.2f");
+			ImGui::DragFloat3("scale", (float*)&scale, 0.04f, 0, 0, "%.2f", 0.03f);
+			return true;
+		}
+		return false;
 	}
 
 	virtual void render() {
-		if (shader) {
-			shader->setUniform("model", getTrans());
-			shader->use();
-			applyColor(shader->getId());
-		} else {
-			assert(0 && name.c_str()); // shader 없음
-		}
+		assert(shader && &name); // shader 없음
+		shader->setUniform("model", getTrans());
+		shader->setUniform("color", color);
+		shader->use();
 		vo->render();
 	}
 
@@ -731,6 +721,23 @@ protected:
 	vec3 pos = vec3(0);
 	vec3 scale = vec3(1);
 	vec3 rot = vec3(0);
+public:
+	const vec3& getPos()const { return pos; }
+	const vec3& getRotation()const { return rot; }
+	const vec3& getScale()const { return scale; }
+	void setPos(const vec3& p) { pos = p; updateTransform(); }
+	void setRotation(const vec3& r) { rot = r; updateTransform(); }
+	void setScale(const vec3& s) { scale = s; updateTransform(); }
+	void translateX(float x) { updateTransform(); pos.x += x; }
+	void translateY(float y) { updateTransform(); pos.y += y; }
+	void translateZ(float z) { updateTransform(); pos.z += z; }
+	void rotateX(float x) { updateTransform(); rot.x += x; }
+	void rotateY(float y) { updateTransform(); rot.y += y; }
+	void rotateZ(float z) { updateTransform(); rot.z += z; }
+	void setParent(Obj* parent) { assert(parent != this); }
+	Obj* GetParent() { return parentObj; }
+	void setShader(Shader& shader) { this->shader = &shader; }
+	void updateTransform() { bIsGetTransInThisTick = false; }
 };
 
 class Camera : public Obj {
@@ -753,7 +760,7 @@ public:
 			UBO = new CameraShaderUniformBuffer();
 			UBO->create();
 		}
-		pos.z = -2;
+		name = "Camera";
 	}
 
 	virtual void tick(float dt) {
@@ -803,17 +810,15 @@ public:
 	}
 
 	void translate(vec3 off) {
-		vec3 right = glm::normalize(glm::cross(target - pos, up));
-		vec3 forward = glm::normalize(glm::cross(up, right));
-		vec3 moveOff = forward * off.z + right * off.x;
+		vec3 forward = getForward();
+		vec3 right = glm::normalize(glm::cross(forward, up));
+		vec3 up = glm::normalize(glm::cross(right, forward));
+		vec3 moveOff = forward * off.z + /*glm::reflect(up, forward)*/up * off.y + right * off.x;
 		pos += moveOff;
-		target += moveOff;
 	}
 
 	void render() {}
-	virtual void initName() {
-		name = "Camera";
-	}
+	void gui(){}
 
 private:
 	uint bIsGetTransInThisTick = 0;

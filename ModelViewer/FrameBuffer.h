@@ -138,14 +138,17 @@ namespace sterma {
 	}
 
 	void renderWindow() {
-		static bool alpha_preview = true;
-		static bool alpha_half_preview = false;
-		static bool drag_and_drop = true;
-		static bool options_menu = true;
-		ImGui::Checkbox("With HDR", &hdr); ImGui::SameLine(); HelpMarker("Currently all this does is to lift the 0..1 limits on dragging widgets.");
-		ImGuiColorEditFlags misc_flags = (hdr ? ImGuiColorEditFlags_HDR : 0) | (drag_and_drop ? 0 : ImGuiColorEditFlags_NoDragDrop) | (alpha_half_preview ? ImGuiColorEditFlags_AlphaPreviewHalf : (alpha_preview ? ImGuiColorEditFlags_AlphaPreview : 0)) | (options_menu ? 0 : ImGuiColorEditFlags_NoOptions);
+		if (ImGui::TreeNode("postprocess")) {
+			static bool alpha_preview = true;
+			static bool alpha_half_preview = false;
+			static bool drag_and_drop = true;
+			static bool options_menu = true;
+			ImGui::Checkbox("With HDR", &hdr); ImGui::SameLine(); HelpMarker("Currently all this does is to lift the 0..1 limits on dragging widgets.");
+			ImGuiColorEditFlags misc_flags = (hdr ? ImGuiColorEditFlags_HDR : 0) | (drag_and_drop ? 0 : ImGuiColorEditFlags_NoDragDrop) | (alpha_half_preview ? ImGuiColorEditFlags_AlphaPreviewHalf : (alpha_preview ? ImGuiColorEditFlags_AlphaPreview : 0)) | (options_menu ? 0 : ImGuiColorEditFlags_NoOptions);
 
-		ImGui::ColorEdit3("MyColor##3", (float*)&color, ImGuiColorEditFlags_NoInputs| misc_flags);
+			ImGui::ColorEdit3("MyColor##3", (float*)&color, ImGuiColorEditFlags_NoInputs | misc_flags);
+			ImGui::TreePop();
+		}
 	}
 
 	void bind() {

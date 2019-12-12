@@ -1,6 +1,7 @@
 ﻿#include "stdafx.h"
 #include "FrameBuffer.cpp"
 #include "inc/bullet.h"
+#include "portable-file-dialog.h"
 //#include "../GL/GLDebugDrawer.h"
 
 //GLDebugDrawer	gDebugDrawer;
@@ -78,16 +79,12 @@ public:
 	float delta = 0;
 	int idx;
 
+	vector<Shader*> lightShaders;
+
 	static int lightCount;
 
 	Light() : Obj() {
 		loadObj("model/sphere.obj");
-		auto pbr = Shader::get("pbr,pbr");
-		setShader(pbr);
-		//scale = vec3(0.2f);
-	}
-
-	virtual void initName() {
 	}
 
 	void tick(float dt) {
@@ -99,49 +96,84 @@ public:
 		pos.y = z;
 		*/
 		updateTransform();
-		shader->setUniform("lightPositions[" + std::to_string(idx) + "]", pos);
-		shader->setUniform("lightColors[" + std::to_string(idx) + "]", color);
+		for (size_t i = 0; i < lightShaders.size(); i++) {
+			lightShaders[i]->setUniform("lightPositions[" + std::to_string(idx) + "]", pos);
+			lightShaders[i]->setUniform("lightColors[" + std::to_string(idx) + "]", color);
+		}
 	}
 
 	void setLightToShader(Shader& shader) {
 		//glm::vec3 newPos = pos + glm::vec3(sin( * 5.0) * 5.0, 0.0, 0.0);
+		lightShaders.push_back(&shader);
+		setShader(*Shader::get("unlit,unlit"));
 		idx = lightCount;
 		name = "light"+ std::to_string(idx);
-		glm::vec3 newPos = pos;
-		shader.setUniform("lightPositions[" + std::to_string(lightCount) + "]", newPos);
-		shader.setUniform("lightColors[" + std::to_string(lightCount) + "]", color);
 		lightCount++;
-		/*shader.setUniform("ambient", vec3(0.1f, 0.1f, 0.1f));
-		shader.setUniform("lightPos", getPos());
-		shader.setUniform("lightColor", color);*/
 	}
 
-	void gui() {
-		ImGui::DragFloat3((name+"pos").c_str(), (float*)&pos);
-		ImGui::ColorEdit3((name+"color").c_str(), (float*)&color, ImGuiColorEditFlags_HDR);
-
+	virtual void gui() {
+		if (guiStart()) {
+			ImGui::ColorEdit3((name + "color").c_str(), (float*)&color, ImGuiColorEditFlags_HDR);
+			ImGui::TreePop();
+		}
 	}
 };
 int Light::lightCount = 0;
 
-class TextureObj : public Obj {
+class PbrObj : public Obj {
 public:
-	Texture texture;
+	Texture albedo;
+	Texture ao_r_m;
+	Texture normal;
+
+	void setTextures(Texture& albedo,
+		Texture& ao_r_m,
+		Texture& normal) {
+		this->albedo = albedo;
+		this->ao_r_m = ao_r_m;
+		this->normal = normal;
+	}
 
 	virtual void render() {
 		if (shader) {
 			shader->setUniform("model", getTrans());
-			//shader->setUniform("texture0", &texture);
-			shader->use();
-			applyColor(shader->getId());
+			shader->setUniform("albedoMap", albedo);
+			shader->setUniform("ao_r_m", ao_r_m);
+			shader->setUniform("normalMap", normal);
+			//shader->use();
 		} else {
 			assert(0 && name.c_str()); // shader 없음
 		}
 		vo->render();
 	}
+
+	virtual bool guiStart() {
+		if (Obj::guiStart()) {
+			if (ImGui::ImageButton((void*)albedo.getId(), ImVec2(32, 32))) openFile(albedo);
+			ImGui::SameLine(); ImGui::Text("albedo");
+			if(ImGui::ImageButton((void*)ao_r_m.getId(), ImVec2(32, 32))) openFile(ao_r_m);
+			ImGui::SameLine(); ImGui::Text("ao_r_m");
+			if(ImGui::ImageButton((void*)normal.getId(), ImVec2(32, 32))) openFile(normal);
+			ImGui::SameLine(); ImGui::Text("normal");
+			return true;
+		}
+		return false;
+	}
+
+#define DEFAULT_PATH "/"
+	void openFile(Texture& texture) {
+		// File open
+		auto f = pfd::open_file("Choose files to read", DEFAULT_PATH,
+			{ "*.png *.jpg *.tga", "*" });
+		std::cout << "Selected files:";
+		for (auto const& name : f.result()) {
+			texture = *Texture::load(name.c_str());
+			return;
+		}
+	}
 };
 
-class ShapeObj : public TextureObj {
+class ShapeObj : public PbrObj {
 public:
 	float speed = 6;
 	virtual void tick(float dt) {
@@ -258,7 +290,7 @@ VO gridVO;
 
 ShapeObj* triObj;
 vector<ShapeObj*> orbits;
-TextureObj* floorObj;
+PbrObj* floorObj;
 
 Light* light[4];
 
@@ -311,7 +343,9 @@ void onKeyboard(unsigned char key, int x, int y, bool isDown) {
 
 	}
 }
-
+Texture albedoMap;
+Texture ao_r_mMap;
+Texture normalMap;
 void initPbr() {
 	auto pbr = Shader::create("pbr", "pbr");
 	auto equirectangular_to_cubemap = Shader::create("cubemap", "equirectangular_to_cubemap");
@@ -359,19 +393,17 @@ void initPbr() {
 
 	Window::get().resetViewport();
 
+	albedoMap = *Texture::load("textures/Cerberus_A.png");
+	ao_r_mMap = *Texture::load("textures/Cerberus_AO_R_M.png");
+	normalMap = *Texture::load("textures/Cerberus_N.png");
+
 	background->setUniform("environmentMap", envCubemap);
 	pbr->setUniform("prefilterMap", prefilterMap);
 	pbr->setUniform("irradianceMap", irradianceMap);
 	pbr->setUniform("brdfLUT", temp.colorTex);
-	pbr->setUniform("albedo", vec3(0.5f, 0.0f, 0.0f));
-	pbr->setUniform("ao", 1.0f);
-	pbr->setUniform("metallic", 1.0f);
-	pbr->setUniform("roughness", 1.0f);
-	pbr->setUniform("albedoMap", *Texture::load("textures/Cerberus_A.png"));
-	pbr->setUniform("metallicMap", *Texture::load("textures/Cerberus_M.png"));
-	pbr->setUniform("roughnessMap", *Texture::load("textures/Cerberus_R.png"));
-	pbr->setUniform("normalMap", *Texture::load("textures/Cerberus_N.png"));
-	pbr->setUniform("aoMap", *Texture::load("textures/Cerberus_AO.png"));
+	pbr->setUniform("albedoMap", albedoMap);
+	pbr->setUniform("ao_r_m", ao_r_mMap);
+	pbr->setUniform("normalMap", normalMap);
 }
 
 void init() {
@@ -381,7 +413,6 @@ void init() {
 	triShader.complie("tri", "tri");
 	gridShader.complie("grid");
 
-	initPbr();
 
 
 
@@ -418,6 +449,7 @@ void init() {
 	};
 
 
+	initPbr();
 	auto pbr = Shader::get("pbr,pbr");
 
 	for (size_t i = 0; i < 4; i++) {
@@ -427,18 +459,19 @@ void init() {
 		light[i]->setLightToShader(*pbr);
 	}
 
-	triObj = new ShapeObj();
+	/*triObj = new ShapeObj();
 	triObj->loadObj("model/gun.obj");
-	triObj->setShader(pbr);
+	triObj->setShader(*pbr);
 	triObj->setScale(vec3(9));
-	floorObj = new TextureObj();
+	triObj->name = "gun";*/
 
+	floorObj = new PbrObj();
 	floorObj->loadObj("model/cube.obj");
-
-	floorObj->setShader(pbr);
-
+	floorObj->setShader(*pbr);
 	floorObj->setScale(vec3(5, 0.1f, 5));
-	floorObj->getPos().x = -1;
+	floorObj->setPos(vec3(-1, 0, 0));
+	floorObj->name = "floor";
+	floorObj->setTextures(albedoMap, ao_r_mMap, normalMap);
 
 	orbits.push_back(new ShapeObj());
 	orbits.push_back(new ShapeObj());
@@ -447,9 +480,11 @@ void init() {
 	for (auto var : orbits) {
 		armLen += 4;
 		var->setPos(vec3(armLen,0,0));
-		var->setShader(pbr);
+		var->setShader(*pbr);
 		var->loadObj("model/sphere.obj");
 		var->color = vec4(f(), f(), f(), f());
+		var->name = "sphere";
+		var->setTextures(albedoMap, ao_r_mMap, normalMap);
 	}
 
 
@@ -464,11 +499,6 @@ void init() {
 	gridVO.vertex.push_back(vec3(0, 0, 100));
 	gridVO.vertex.push_back(vec3(0, 0, -100));
 	gridVO.bind();
-
-	auto objs = Scene::activeScene->objs;
-	for (set<TickObj*>::iterator it = objs.begin(); it != objs.end(); ++it) {
-		(*it)->initName();
-	}
 
 	onKeyboardEvent = onKeyboard;
 }
@@ -493,12 +523,16 @@ void loop() {
 
 	cam->tick(dt);
 	if (Input::mouse[EMouse::MOUSE_R_BUTTON]) {
-		cam->getRotation().x += dt * 10 * Input::mouse[EMouse::MOUSE_OFF_Y];
-		cam->getRotation().y += dt * 10 * Input::mouse[EMouse::MOUSE_OFF_X];
+		cam->rotateX(dt * 10 * Input::mouse[EMouse::MOUSE_OFF_Y]);
+		cam->rotateY(dt * 10 * Input::mouse[EMouse::MOUSE_OFF_X]);
+	}
+	if (Input::mouse[EMouse::MOUSE_M_BUTTON]) {
+		vec3 move(dt * 1 * Input::mouse[EMouse::MOUSE_OFF_X], dt * -1 * Input::mouse[EMouse::MOUSE_OFF_Y],0);
+		cam->translate(move);
 	}
 	cam->armVector.z = clamp(-10 + Input::mouse[EMouse::MOUSE_WHEEL], -100, -1);
 
-	Bullet::dynamicsWorld->stepSimulation(dt, 10);
+	Bullet::tick(dt);
 	Scene::activeScene->tick(dt);
 
 	Input::getMousePos();
@@ -514,15 +548,63 @@ void loop() {
 float a = 0;
 float metallic = 0;
 float roughness = 0;
-float ao = 1;
+float ao = 0;
 vec3 albedo = vec3(0);
+void imguiRender() {
+	auto pbr = Shader::get("pbr,pbr");
+	// Main body of the Demo window starts here.
+	if (!ImGui::Begin("HI")) {
+		// Early out if the window is collapsed, as an optimization.
+		ImGui::End();
+		return;
+	}
+	if (ImGui::TreeNode("etc")) {
+		if (ImGui::Button("pbr recomplie")) {
+			pbr->recomplie();
+		}
+		if (ImGui::Button("Load Obj##3b")) {
+			auto f = pfd::open_file("Choose files to read", DEFAULT_PATH,
+				{ "*.obj"});
+			std::cout << "Selected files:";
+			
+			auto temp = new PbrObj();
+			for (auto const& name : f.result()) {
+				temp->loadObj(name.c_str());
+				break;
+			}
+			temp->albedo = albedoMap;
+			temp->ao_r_m = ao_r_mMap;
+			temp->normal = normalMap;
+			temp->setShader(*Shader::get("pbr,pbr"));
+			temp->name = "load";
+		}
+		ImGui::Spacing();
+		ImGui::SliderFloat("metallic", &metallic, 0.0f, 1.0f, "%.2f");
+		ImGui::SliderFloat("roughness", &roughness, 0.0f, 1.0f, "%.2f");
+		ImGui::BeginGroup();
+		ImGui::SliderFloat("ao", &ao, 0.0f, 1.0f, "%.2f");
+		ImGui::ColorEdit3("albedo##3", (float*)&albedo, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_HDR);
+		ImGui::EndGroup();
+		pbr->setUniform("metallic", metallic);
+		pbr->setUniform("roughness", roughness);
+		pbr->setUniform("ao", ao);
+		pbr->setUniform("albedo", albedo);
+
+		ImGui::TreePop();
+	}
+	sterma::renderWindow();
+	Scene::self().gui();
+	ImGui::End();
+}
+
+
 GLvoid drawScene() {
 	float gray = 0.3f;
 	glClearColor(gray, gray, gray, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 	cam->bind();
-
+	
 	// 텍스처버퍼에 그림
 	// -----------------
 	sterma::bind();
@@ -544,45 +626,17 @@ GLvoid drawScene() {
 
 	sterma::render();
 
-	auto pbr = Shader::get("pbr,pbr");
 
+	
 	// Start the Dear ImGui frame
 	ImGui_ImplOpenGL3_NewFrame();
 	ImGui_ImplGLUT_NewFrame();
 
-	//
 	ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_Once);
-	ImGui::SetNextWindowSize(ImVec2(150, 500), ImGuiCond_Once);
+	ImGui::SetNextWindowSize(ImVec2(200, 500), ImGuiCond_Once);
 
-	// Main body of the Demo window starts here.
-	if (!ImGui::Begin("HI")) {
-		// Early out if the window is collapsed, as an optimization.
-		ImGui::End();
-		return;
-	}
-	//ImGui::PushItemWidth(ImGui::GetFontSize() * -12);
-	{
-		if (ImGui::Button("shader recomplie")) {
-			ImGui::LogToClipboard();
-			ImGui::LogText("Hello, world!");
-			ImGui::LogFinish();
-			pbr->recomplie();
-		}
-		sterma::renderWindow();
-		ImGui::SliderFloat("metallic", &metallic, 0.0f, 1.0f, "%.2f");
-		ImGui::SliderFloat("roughness", &roughness, 0.0f, 1.0f, "%.2f");
-		ImGui::SliderFloat("ao", &ao, 0.0f, 1.0f, "%.2f");
-		ImGui::ColorEdit3("albedo##3", (float*)&albedo, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_HDR);
-		pbr->setUniform("metallic", metallic);
-		pbr->setUniform("roughness", roughness);
-		pbr->setUniform("ao", ao);
-		pbr->setUniform("albedo", albedo);
+	imguiRender();
 
-		for (size_t i = 0; i < 4; i++) {
-			light[i]->gui();
-		}
-	}
-	ImGui::End();
 
 	//ImGui::ShowDemoWindow();
 

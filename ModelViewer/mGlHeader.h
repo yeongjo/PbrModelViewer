@@ -138,8 +138,7 @@ public:
 	static map<string, VO*> loadedObjs;
 	
 	static VO* loadObj(const char *path) {
-		pair<map<string, VO*>::iterator, bool > pr;
-		pr = loadedObjs.insert(std::pair<string, VO*>(path, NULL));
+		auto pr = loadedObjs.insert(std::pair<string, VO*>(path, NULL));
 		if (pr.second == true) {
 			pr.first->second = readObj(path);
 		}
@@ -256,14 +255,13 @@ VO* readObj(const char* file_path) {
 				tinyobj::real_t tx = attrib.texcoords[2 * idx.texcoord_index + 0];
 				tinyobj::real_t ty = attrib.texcoords[2 * idx.texcoord_index + 1];
 				// Optional: vertex colors
-				tinyobj::real_t red = attrib.colors[3 * idx.vertex_index + 0];
-				tinyobj::real_t green = attrib.colors[3 * idx.vertex_index + 1];
-				tinyobj::real_t blue = attrib.colors[3 * idx.vertex_index + 2];
+				//tinyobj::real_t red = attrib.colors[3 * idx.vertex_index + 0];
+				//tinyobj::real_t green = attrib.colors[3 * idx.vertex_index + 1];
+				//tinyobj::real_t blue = attrib.colors[3 * idx.vertex_index + 2];
 
 				vo->vertex.push_back(vec3(vx, vy, vz));
 				vo->normal.push_back(vec3(nx, ny, nz));
 				vo->uv.push_back(vec2(tx, ty));
-				vo->color.push_back(vec3(rc(), rc(), rc()));
 			}
 			index_offset += fv;
 
@@ -271,7 +269,8 @@ VO* readObj(const char* file_path) {
 			shapes[s].mesh.material_ids[f];
 		}
 	}
-
+	/*shapes.shrink_to_fit();
+	materials.shrink_to_fit();*/
 	return vo;
 }
 
