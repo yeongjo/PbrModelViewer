@@ -14,17 +14,18 @@ vec3 randColor() {
 	return vec3(f(), f(), f());
 }
 
+void renderCube();
 
 
 class Window {
 	static Window* active;
-public:
 	uint w, h;
 	uint halfWidth, halfHeight;
 	float ratio;
-
-	Window() {
+public:
+	Window(int w, int h) {
 		active = this;
+		init(w, h);
 	}
 
 	static Window& get() {
@@ -37,6 +38,21 @@ public:
 		ratio = w / (float)h;
 		halfWidth = w / 2, halfHeight = h / 2;
 	}
+
+	void resetViewport() {
+		glViewport(0, 0, w, h);
+	}
+public:
+    uint getW() const { return w; }
+
+    uint getH() const { return h; }
+
+    uint getHalfWidth() const { return halfWidth; }
+
+    uint getHalfHeight() const { return halfHeight; }
+
+    float getRatio() const { return ratio; }
+
 };
 
 
@@ -46,11 +62,11 @@ Window* Window::active = nullptr;
 class TickObj;
 class Scene {
 public:
-	set<TickObj*> objs;
+	vector<TickObj*> objs;
 
 	void tick(float dt);
-
 	void render();
+	void gui();
 
 	void active() {
 		activeScene = this;
@@ -65,12 +81,7 @@ public:
 	}
 
 	static void addObj(TickObj* obj) {
-		Scene::self().objs.insert(obj);
-	}
-
-	queue<TickObj*> removeObjs;
-	static void removeObj(TickObj* obj) {
-		Scene::self().removeObjs.push(obj);
+		Scene::self().objs.push_back(obj);
 	}
 };
 
@@ -79,30 +90,67 @@ Scene* Scene::activeScene = nullptr;
 
 
 class TickObj {
+	bool bIsRemoved = false;
+	static int uniqueIdCounter;
+protected:
+	int uniqueId;
 public:
-	TickObj() { Scene::addObj(this); }
-	virtual ~TickObj() {  }
+	string name;
+
+	TickObj() { uniqueId = uniqueIdCounter++;  Scene::addObj(this); }
+	void remove(){ bIsRemoved = true; }
+	bool getIsRemoved() const { return bIsRemoved; }
 	virtual void tick(float dt) = 0;
 	virtual void render() = 0;
-	virtual void initName(){}
+
+	virtual bool guiStart() {
+		auto tree = ImGui::TreeNode((std::to_string(uniqueId) + name).c_str());
+		
+		if (tree) {
+			ImGui::SameLine(150);
+			if (ImGui::Button("delete")) {
+				this->remove();
+			}
+			return true;
+		}
+		return false;
+	}
+
+	virtual void gui() {
+		if (guiStart()) {
+			ImGui::TreePop();
+		}
+	}
 };
+int TickObj::uniqueIdCounter = 0;
 
 
 void Scene::tick(float dt) {
-	for (set<TickObj*>::iterator it = objs.begin(); it != objs.end();++it) {
-		(*it)->tick(dt);
-	}
-	while(Scene::self().removeObjs.size()) {
-		auto t = removeObjs.front();
-		objs.erase(t);
-		delete t;
-		removeObjs.pop();
+	auto size = objs.size();
+	for (size_t i = 0; i < size; ++i) {
+		auto cache = objs[i];
+		if (cache->getIsRemoved()) {
+			--size;
+			objs.erase(objs.begin() + i);
+			delete cache;
+			continue;
+		}
+
+		cache->tick(dt);
 	}
 }
 
 void Scene::render() {
-	for (set<TickObj*>::iterator it = objs.begin(); it != objs.end(); ++it) {
-		(*it)->render();
+	auto size = objs.size();
+	for (size_t i = 0; i < size; ++i) {
+		objs[i]->render();
+	}
+}
+
+void Scene::gui() {
+	auto size = objs.size();
+	for (size_t i = 0; i < size; ++i) {
+		objs[i]->gui();
 	}
 }
 
@@ -118,6 +166,7 @@ public:
 	void create() {
 		glGenBuffers(1, &UBO);
 		glBindBuffer(GL_UNIFORM_BUFFER, UBO);
+		//UBO에 대한 설명
 		//https://learnopengl.com/Advanced-OpenGL/Advanced-GLSL
 		glBufferData(GL_UNIFORM_BUFFER,
 			sizeof(mat4) * 3 + sizeof(vec4),
@@ -131,317 +180,475 @@ public:
 		glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(glm::mat4), p);
 		glBufferSubData(GL_UNIFORM_BUFFER, sizeof(glm::mat4), sizeof(glm::mat4), v);
 		glBufferSubData(GL_UNIFORM_BUFFER, 2 * sizeof(glm::mat4), sizeof(glm::mat4), vp);
-		glBufferSubData(GL_UNIFORM_BUFFER, 3 * sizeof(glm::mat4), sizeof(glm::vec3), pos); // 카메라 위치
+		glBufferSubData(GL_UNIFORM_BUFFER, 3 * sizeof(glm::mat4), sizeof(glm::vec4), pos); // 카메라 위치
 		glBindBufferBase(GL_UNIFORM_BUFFER, 0, UBO);
 	}
 };
 
-struct TextureBindInfo {
-	unsigned int id;
-	unsigned int activeIdx;
-};
-
-class IShaderUniform {
-public:
-	virtual void setName(unsigned shaderIdx, const char* name) = 0;
-	virtual void setData(void* ptr) = 0;
-	virtual void* getData() = 0;
-	virtual void applyUniform() = 0;
-	virtual void log() = 0;
-};
-
-
-template<class T>
-class ShaderUniform : public IShaderUniform {
-public:
-	int uniformLocation = -2;
-	string uniformName;
-	T* valuePtr = nullptr; // 보낼 값이 있는 포인터
-	bool isRef; // 다른걸 참조하는지: 한다면 지우면안되고 아니면 지워야함
-
-	ShaderUniform(bool isRef) {
-		this->isRef = isRef;
-	}
-
-	virtual ~ShaderUniform() {
-		if (!isRef) delete valuePtr;
-	}
-
-	void setName(unsigned shaderIdx, const char* name) {
-		uniformName = name;
-		uniformLocation = glGetUniformLocation(shaderIdx, name);
-	}
-	
-	// 값 설정
-	void setData(void* ptr) {
-		T* t = (T*)ptr;
-		if (!isRef&&!valuePtr)
-			t = new T(*t);
-		setData(t);
-	}
-
-	void* getData() {
-		return valuePtr;
-	}
-
-	// 쉐이더에 값 적용
-	void applyUniform() {
-		if (uniformLocation != -1) {
-			applyUniformByType();
-		}
-	}
-
-	void log() {
-		debug("[id:%d]%s: %s", uniformLocation, uniformName.c_str(), glm::to_string(*valuePtr).c_str());
-	}
-private:
-	void setData(T* ptr) {
-		valuePtr = ptr;
-	}
-
-	void applyUniformByType();
-};
-
-template<>
-void ShaderUniform<TextureBindInfo>::setData(void* ptr) {
-	TextureBindInfo* t = (TextureBindInfo*)ptr;
-
-	if (!isRef && !valuePtr) {
-		valuePtr = new TextureBindInfo(*t);
-	} else {
-		valuePtr->id = t->id;
-		valuePtr->activeIdx = t->activeIdx;
-	}
-
-	glUniform1i(uniformLocation, valuePtr->activeIdx);
-}
-
-template<>
-void ShaderUniform<TextureBindInfo>::log() {
-	debug("[id:%d]%s: id: %d, bind: %d", uniformLocation, uniformName.c_str(), valuePtr->id, valuePtr->activeIdx - GL_TEXTURE0);
-}
-template<>
-void ShaderUniform<int>::log() {
-	debug("[id:%d]%s: %d", uniformLocation, uniformName.c_str(), valuePtr);
-}
-
-template<>
-void ShaderUniform<mat4>::applyUniformByType() {
-	glUniformMatrix4fv(uniformLocation, 1, GL_FALSE, (const float*)valuePtr);
-}
-
-template<>
-void ShaderUniform<vec3>::applyUniformByType() {
-	glUniform3fv(uniformLocation, 1, (GLfloat*)valuePtr);
-}
-
-template<>
-void ShaderUniform<vec4>::applyUniformByType() {
-	glUniform4fv(uniformLocation, 1, (GLfloat*)valuePtr);
-}
-
-template<>
-void ShaderUniform<int>::applyUniformByType() {
-	glUniform1i(uniformLocation, *(GLint*)valuePtr);
-}
-
-template<>
-void ShaderUniform<TextureBindInfo>::applyUniformByType() {
-	
-	glActiveTexture(valuePtr->activeIdx + GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, valuePtr->id);
-}
-
-
-//template<>
-//void ShaderUniform<mat4>::log() {
-//	debug("[%d]%s: %s", uniformLocation, uniformName, glm::to_string(*valuePtr));
-//}
-//
-//template<>
-//void ShaderUniform<vec3>::log() {
-//	debug("[%d]%s: %s", uniformLocation, uniformName, glm::to_string(*valuePtr));
-//}
 
 class Texture {
-public:
+protected:
 	int width, height, nrChannels;
 	unsigned int id;
-	void load(const char* path) {
+public:
+	const int getWidth() const { return width; }
+	const int getHeight() const { return height; }
+	const int getNrChannels() const { return nrChannels; }
+	const unsigned int getId() const { return id; }
+
+	static Texture* load(const char* path, unsigned type= GL_RGB, unsigned tagetType= GL_RGB) {
+		auto temp = new Texture();
+		auto& id = temp->id;
+		auto& width = temp->width;
+		auto& height = temp->height;
+		auto& nrChannels = temp->nrChannels;
 		glGenTextures(1, &id);
 		glBindTexture(GL_TEXTURE_2D, id);
 		// set the texture wrapping parameters
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);	// set texture wrapping to GL_REPEAT (default wrapping method)
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 		// set texture filtering parameters
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_LINEAR);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 		// load image, create texture and generate mipmaps
 		stbi_set_flip_vertically_on_load(true); // tell stb_image.h to flip loaded texture's on the y-axis.
 		// The FileSystem::getPath(...) is part of the GitHub repository so we can find files on any IDE/platform; replace it with your own image path.
 		unsigned char* data = stbi_load(path, &width, &height, &nrChannels, 0);
 		if (data) {
-			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
+			if(nrChannels == 3)
+				glTexImage2D(GL_TEXTURE_2D, 0, type, width, height, 0, tagetType, GL_UNSIGNED_BYTE, data);
+			else if (nrChannels == 4)
+				glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
 			glGenerateMipmap(GL_TEXTURE_2D);
 		} else {
 			assert("Failed to load texture: " && path && 0);
 		}
 		stbi_image_free(data);
+		return temp;
 	}
 
-	//void setUniformToShader(Shader& shader, const char* name) {
-	//	glUniform1i(glGetUniformLocation(shader.id, name), 0);
-	//	// or set it via the texture class
-	//	shader.addUniform(name, 1);
-	//}
+	static Texture* createEmpty(int width, int height, unsigned type= GL_RGB16F, unsigned color=GL_RGB) {
+		auto temp = new Texture;
+		temp->width = width;
+		temp->height = height;
+		glGenTextures(1, &temp->id);
+		glBindTexture(GL_TEXTURE_2D, temp->id);
+		glTexImage2D(GL_TEXTURE_2D, 0, type, width, height, 0, color, GL_FLOAT, NULL);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		return temp;
+	}
+
+	static Texture* loadHDR(const char* path) {
+		auto temp = new Texture();
+		auto& id = temp->id;
+		auto& width = temp->width;
+		auto& height = temp->height;
+		auto& nrChannels = temp->nrChannels;
+		stbi_set_flip_vertically_on_load(true);
+		float* data = stbi_loadf(path, &width, &height, &nrChannels, 0);
+		if (data) {
+			glGenTextures(1, &id);
+			glBindTexture(GL_TEXTURE_2D, id);
+			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, width, height, 0, GL_RGB, GL_FLOAT, data); // note how we specify the texture's data value to be float
+
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+			stbi_image_free(data);
+		} else {
+			std::cout << "Failed to load HDR image." << std::endl;
+		}
+		return temp;
+	}
+};
+
+class Shader;
+class Cubemap : public Texture {
+public:
+	void init(int width, int height) {
+		glGenTextures(1, &id);
+		glBindTexture(GL_TEXTURE_CUBE_MAP, id);
+		for (unsigned int i = 0; i < 6; ++i) {
+			glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGB16F, width, height, 0, GL_RGB, GL_FLOAT, nullptr);
+		}
+		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR); // enable pre-filter mipmap sampling (combatting visible dots artifact)
+		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		this->width = width;
+		this->height = height;
+	}
+
+	void convertFromEquirectangular(Texture& tex, Shader* shader);
+	void convertFromEquirectangular(Cubemap& tex, Shader* shader);
+	void quasiMonteCarloSimulation(Cubemap& tex, Shader* shader);
+
+protected:
+	static unsigned int captureFBO;
+	static unsigned int captureRBO;
+	static glm::mat4 captureProjection;
+	static glm::mat4 captureViews[];
+};
+unsigned int Cubemap::captureFBO = 0;
+unsigned int Cubemap::captureRBO = 0;
+glm::mat4 Cubemap::captureProjection = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 10.0f);
+glm::mat4 Cubemap::captureViews[] =
+{
+	glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f)),
+	glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(-1.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f)),
+	glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f)),
+	glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f)),
+	glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, -1.0f, 0.0f)),
+	glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(0.0f, -1.0f, 0.0f))
+};
+
+class Shader;
+class IUniform {
+protected:
+	int location;
+	string name;
+public:
+	IUniform(const Shader& shader, string& name);
+	void updateLocation(const Shader& shader);
+	int getLocation() const { return location; }
+	virtual void setData(const void*) = 0;
+	virtual void apply() const = 0;
+	const string& getName() const { return name; }
+};
+
+template<class T>
+class Uniform : public IUniform {
+	T data;
+public:
+	Uniform(const Shader& shader, string& name, const T& data):
+		IUniform(shader, name), data(data){}
+	virtual void setData(const void* data) {
+		this->data = *((T*)data);
+	}
+	virtual void apply() const {
+		//assert("정의하지않은 값이 할당되려함" && 0);
+	}
+};
+template<>
+void Uniform<int>::apply() const {
+	if (location == -1) return;
+	glUniform1i(location, data);
+}
+template<>
+void Uniform<float>::apply() const {
+	if (location == -1) return;
+	glUniform1f(location, data);
+}
+template<>
+void Uniform<vec3>::apply() const {
+	if (location == -1) return;
+	glUniform3fv(location, 1, (GLfloat*)&data);
+}
+template<>
+void Uniform<vec4>::apply() const {
+	if (location == -1) return;
+	glUniform4fv(location, 1, (GLfloat*)&data);
+}
+template<>
+void Uniform<mat4>::apply() const {
+	if (location == -1) return;
+	glUniformMatrix4fv(location, 1, GL_FALSE, (const float*)&data);
+}
+
+struct TextureBindInfo {
+	unsigned int id;
+	unsigned int activeIdx;
+	unsigned int type;
+};
+
+class TextureUniform : public IUniform {
+public:
+	TextureBindInfo textureInfo;
+	TextureUniform(const Shader& shader, string& name) :
+		IUniform(shader, name) {
+	}
+	void updateLocation(const Shader& shader) {
+		IUniform::updateLocation(shader);
+		if (location != -1)
+		glUniform1i(location, textureInfo.activeIdx);
+	}
+	virtual void setData(const void* d) {
+		textureInfo = *(TextureBindInfo*)d;
+		if(location != -1)
+		glUniform1i(location, textureInfo.activeIdx);
+	}
+	virtual void apply() const {
+		if (location == -1) return;
+		glActiveTexture(textureInfo.activeIdx + GL_TEXTURE0);
+		glBindTexture(textureInfo.type, textureInfo.id);
+	}
 };
 
 class Shader {
-	
+	unsigned int lastTextureIdx = 0;
+	static int usingId;
+	unsigned int id = 0;
 
-	unsigned int textureIdx = 0;
-public:
-	unsigned int id;
-	map<string, IShaderUniform*> shaderUniforms;
-	string shaderPath;
-
+	std::map<string, IUniform*> uniforms;
+	vector<TextureUniform> texUniforms;
+	string vsPath;
+	string fsPath;
 	static map<string, Shader*> shaders;
+public:
+	// 이미 있다면 만들지않고 반환
+	static Shader* create(const char* vs, const char* fs) {
+		stringstream ss;
+		ss << vs << "," << fs;
+		auto getShader = get(ss.str().c_str());
+		if (getShader) {
+			return getShader;
+		}
+		auto temp = new Shader();
+		temp->complie(vs, fs);
+		return temp;
+	}
 
-	void complieShader(const char* shaderPath) {
-		auto find = shaders.insert(pair<string, Shader*>(shaderPath, this));
+	static Shader* get(const char* name) {
+		auto iter = shaders.find(name);
+		if (iter != shaders.end())
+			return iter->second;
+		return nullptr;
+	}
+
+	void complie(const char* vsPath) {
+		complie(vsPath, vsPath);
+	}
+
+	void complie(const char* vs, const char* fs) {
+		if(id != 0)
+			glDeleteProgram(id);
+		this->vsPath = vs;
+		this->fsPath = fs;
+		stringstream ss;
+		ss << vs << "," << fs;
+
+		auto find = shaders.insert(make_pair<string, Shader*>(ss.str(), this));
 		if (!find.second) {
-			assert(0 && shaderPath); //에 경로가 없음
+			assert(0 && vs && fs); //vs fs에 경로가 없음
 		}
-		id = ::complieShader(shaderPath);
-		this->shaderPath = shaderPath;
-		shaders.insert(pair<string, Shader*>(shaderPath, this));
+		id = ::complie(vs, fs);
 	}
 
-	void addUniform(const char* name, int ptr) {
-		print("%s int add uniform", name);
-		insertUniform(name, &ptr, false);
-	}
-
-	void addUniform(const char* name, mat4* ptr) {
-		print("%s mat4 add Referentce uniform", name);
-		insertUniform(name, ptr);
-	}
-
-	void addUniform(const char* name, vec3* ptr) {
-		print("%s vec3 add Referentce uniform", name);
-		insertUniform(name, ptr);
-	}
-
-	void addUniform(const char* name, vec4* ptr) {
-		print("%s vec3 add Referentce uniform", name);
-		insertUniform(name, ptr);
-	}
-
-	void addUniform(const char* name, mat4& ptr) {
-		print("%s mat4 add uniform", name);
-		insertUniform(name, &ptr, false);
-	}
-
-	void addUniform(const char* name, Texture& tex) {
-		print("%s Texture add uniform", name);
-		auto a = TextureBindInfo{ tex.id, textureIdx };
-		insertUniform(name, &a, false);
-		++textureIdx;
-	}
-
-	void removeUniform() {
-		//TODO 나중에만들거
-	}
-
-	template<class T>
-	void changeUniformValue(const char* name, T* ptr) {
-		auto uniform = getUniform(name);
-		if (uniform)
-			uniform->setData(ptr);
-	}
-
-	void use() {
-		glUseProgram(id);
-		if (!shaderUniforms.empty())
-			for (auto it = shaderUniforms.begin(); it != shaderUniforms.end(); it++) {
-				it->second->applyUniform();
-			}
-	}
-
-	void pureUse() {
-		glUseProgram(id);
-	}
-
-	// log용
-	void logAllUniforms() {
-		if (!shaderUniforms.empty())
-			for (auto it = shaderUniforms.begin(); it != shaderUniforms.end(); it++) {
-				it->second->log();
-			}
-		else
-			debug("%s has no uniforms", shaderPath);
-	}
-
-	void logUniform(const char* name) {
-		if (!shaderUniforms.empty()) {
-			auto temp = getUniform(name);
-			if (temp) { temp->log(); return; }
+	void recomplie() {
+		assert(id != 0);
+		glDeleteProgram(id);
+		id = ::complie(vsPath.c_str(), fsPath.c_str());
+		pureUse();
+		for (auto begin = uniforms.begin();
+			begin != uniforms.end(); begin++) {
+			begin->second->updateLocation(*this);
+			begin->second->apply();
 		}
-		debug("%s has no uniforms", shaderPath);
+		for (size_t i = 0; i < texUniforms.size(); i++) {
+			texUniforms[i].updateLocation(*this);
+		}
 	}
 
-	// 이름으로 유니폼가져옴 없을시 null반환
-	IShaderUniform* getUniform(const char* name) {
-		auto findKey = shaderUniforms.find(name);
-		if (findKey == shaderUniforms.end()) {
-			return nullptr;
+	void use() const {
+		pureUse();
+		for (size_t i = 0; i < texUniforms.size(); i++) {
+			texUniforms[i].apply();
 		}
-		return findKey->second;
+	}
+
+	void pureUse() const {
+		if (usingId != id) {
+			glUseProgram(id);
+			usingId = id;
+		}
+	}
+
+	void setUniform(string name, int ptr) {
+		getUniformLocation<int>(name, ptr)->apply();
+	}
+	void setUniform(string name, float ptr) {
+		getUniformLocation<float>(name, ptr)->apply();
+	}
+	void setUniform(string name, const vec3& ptr) {
+		getUniformLocation<vec3>(name, ptr)->apply();
+	}
+	void setUniform(string name, const vec4& ptr) {
+		getUniformLocation<vec4>(name, ptr)->apply();
+	}
+	void setUniform(string name, const mat4& ptr) {
+		getUniformLocation<mat4>(name, ptr)->apply();
+	}
+	void setUniform(string name, Texture ptr) {
+		setTexture(name, ptr);
+	}
+	void setUniform(string name, const Cubemap& ptr) {
+		setTexture(name, ptr, GL_TEXTURE_CUBE_MAP);
 	}
 
 private:
+	// 이름으로 유니폼가져옴
 	template<class T>
-	void insertUniform(const char* name, T* ptr, bool isRef = true) {
-		auto uniform = getUniform(name);
-		if (uniform) {
-			//assert("넣으려는 유니폼이 이미 있음" && name && 0);
-		}else {
-			uniform = new ShaderUniform<T>(isRef);
-		}
+	IUniform* getUniformLocation(string name, const T& data) {
 		pureUse();
-		uniform->setName(id, name);
-		uniform->setData(ptr);
-		shaderUniforms.insert(make_pair(name, uniform));
+		auto findKey = uniforms.find(name.c_str());
+		if (findKey == uniforms.end()) {
+			auto temp = new Uniform<T>(*this, name, data);
+			uniforms[name]= temp;
+			return temp;
+		}
+		findKey->second->setData(&data);
+		return findKey->second;
 	}
+
+	// 없으면 null 반환
+	TextureUniform* getTextureUniform(string& name) {
+		pureUse();
+		for (size_t i = 0; i < texUniforms.size(); i++) {
+			if (texUniforms[i].getName()._Equal(name)) {
+				return &texUniforms[i];
+			}
+		}
+		return nullptr;
+	}
+
+	void setTexture(string name, const Texture& ptr, unsigned type= GL_TEXTURE_2D) {
+		auto uniform = getTextureUniform(name);
+		if (uniform) {
+			uniform->textureInfo.id = ptr.getId();
+			uniform->textureInfo.type = type;
+			uniform->apply();
+		} else {
+			TextureUniform temp(*this, name);
+			auto bindInfo = TextureBindInfo{ ptr.getId(), lastTextureIdx, type };
+			temp.setData(&bindInfo);
+			texUniforms.push_back(temp);
+			++lastTextureIdx;
+		}
+	}
+public:
+	unsigned int getId() const { return id; }
+
 };
 map<string, Shader*> Shader::shaders;
+int Shader::usingId = -1;
 
-template<>
-void Shader::changeUniformValue<Texture>(const char* name, Texture* ptr) {
-	auto uniform = getUniform(name);
-	if (uniform) {
-		auto a = TextureBindInfo{ ptr->id, ((TextureBindInfo*)uniform->getData())->activeIdx};
-		uniform->setData(&a);
+void Cubemap::convertFromEquirectangular(Texture& tex, Shader *shader) {
+	if (captureFBO == 0) {
+		glGenFramebuffers(1, &captureFBO);
+		glGenRenderbuffers(1, &captureRBO);
 	}
+	glBindFramebuffer(GL_FRAMEBUFFER, captureFBO);
+	glBindRenderbuffer(GL_RENDERBUFFER, captureRBO);
+	glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, width, height);
+	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, captureRBO);
+	
+	shader->setUniform("map", tex);
+	shader->setUniform("projection", captureProjection);
+
+	glViewport(0, 0, width, height);
+
+	shader->use();
+	glBindFramebuffer(GL_FRAMEBUFFER, captureFBO);
+	for (unsigned int i = 0; i < 6; ++i) {
+		shader->setUniform("view", captureViews[i]);
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, id, 0);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		renderCube();
+	}
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+	// then let OpenGL generate mipmaps from first mip face (combatting visible dots artifact)
+	glBindTexture(GL_TEXTURE_CUBE_MAP, id);
+	glGenerateMipmap(GL_TEXTURE_CUBE_MAP);
+}
+void Cubemap::convertFromEquirectangular(Cubemap& tex, Shader* shader) {
+	if (captureFBO == 0) {
+		glGenFramebuffers(1, &captureFBO);
+		glGenRenderbuffers(1, &captureRBO);
+	}
+	glBindFramebuffer(GL_FRAMEBUFFER, captureFBO);
+	glBindRenderbuffer(GL_RENDERBUFFER, captureRBO);
+	glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, width, height);
+	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, captureRBO);
+
+	shader->setUniform("map", tex);
+	shader->setUniform("projection", captureProjection);
+
+	glViewport(0, 0, width, height);
+
+	shader->use();
+	glBindFramebuffer(GL_FRAMEBUFFER, captureFBO);
+	for (unsigned int i = 0; i < 6; ++i) {
+		shader->setUniform("view", captureViews[i]);
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, id, 0);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		renderCube();
+	}
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+	// then let OpenGL generate mipmaps from first mip face (combatting visible dots artifact)
+	glBindTexture(GL_TEXTURE_CUBE_MAP, id);
+	glGenerateMipmap(GL_TEXTURE_CUBE_MAP);
 }
 
+void Cubemap::quasiMonteCarloSimulation(Cubemap& tex, Shader* shader) {
+	if (captureFBO == 0) {
+		glGenFramebuffers(1, &captureFBO);
+		glGenRenderbuffers(1, &captureRBO);
+	}
+	glBindFramebuffer(GL_FRAMEBUFFER, captureFBO);
+	glBindRenderbuffer(GL_RENDERBUFFER, captureRBO);
+	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, captureRBO);
+
+	shader->setUniform("map", tex);
+	shader->setUniform("projection", captureProjection);
+
+	shader->use();
+	glBindFramebuffer(GL_FRAMEBUFFER, captureFBO);
+	unsigned int maxMipLevels = 5;
+	for (unsigned int mip = 0; mip < maxMipLevels; ++mip) {
+		// reisze framebuffer according to mip-level size.
+		unsigned int mipWidth = 128 * std::pow(0.5, mip);
+		unsigned int mipHeight = 128 * std::pow(0.5, mip);
+		glBindRenderbuffer(GL_RENDERBUFFER, captureRBO);
+		glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, mipWidth, mipHeight);
+		glViewport(0, 0, mipWidth, mipHeight);
+
+		float roughness = (float)mip / (float)(maxMipLevels - 1);
+		shader->setUniform("roughness", roughness);
+		for (unsigned int i = 0; i < 6; ++i) {
+			shader->setUniform("view", captureViews[i]);
+			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, id, mip);
+
+			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+			renderCube();
+		}
+	}
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+void IUniform::updateLocation(const Shader& shader) {
+	location = glGetUniformLocation(shader.getId(), name.c_str());
+}
+
+IUniform::IUniform(const Shader& shader, string& name) {
+	this->name = name;
+	updateLocation(shader);
+}
 
 class Obj : public TickObj {
 protected:
 	Obj* parentObj = nullptr;
-public:
-	VO* vo;
-
+	glm::mat4 trans = glm::mat4(1.0f);
 	Shader* shader = nullptr;
 
-	glm::mat4 trans = glm::mat4(1.0f);
-	vec4 color = vec4(1);
-
-	string name;
-
-	virtual void initName() {
-		name = "Obj";
-	}
+public:
+	VO* vo = nullptr;
+	vec3 color = vec3(1);
 
 	// call after this have verteies
 	void loadObj(const char* path) {
@@ -449,77 +656,39 @@ public:
 		vo->bind();
 	}
 
-	void destroy() {
-		Scene::removeObj(this);
-	}
-
-	vec3& getPos(){
-		return pos;
-	}
-
-	vec3& getRotation(){
-		return rot;
-	}
-
-	vec3& getScale(){
-		return scale;
-	}
-
-	void setPos(const vec3& p) {
-		pos = p; bIsGetTransInThisTick = false;
-	}
-	void setRotation(const vec3& r) {
-		rot = r; bIsGetTransInThisTick = false;
-	}
-	void setScale(const vec3& s) {
-		scale = s; bIsGetTransInThisTick = false;
-	}
-
-	void setParent(Obj* parent) {
-		assert(parent != this);
-		parentObj = parent;
-	}
-	Obj* GetParent() {
-		return parentObj;
-	}
-
-	void setShader(Shader* shader) {
-		this->shader = shader;
-		shader->addUniform("trans", &getTrans()); // TODO 낭비됨 계속 똑같은거 추가함
-	}
-
-	void rotateX(float x) {
-		bIsGetTransInThisTick = false; rot.x += x;
-	}
-	void rotateY(float y) {
-		bIsGetTransInThisTick = false; rot.y += y;
-	}
-	void rotateZ(float z) {
-		bIsGetTransInThisTick = false; rot.z += z;
-	}
-
-	void updateTransform() {
-		bIsGetTransInThisTick = false;
-	}
-
 	vec3 getForward() {
 		vec3 forward;
 		forward.x = sin(glm::radians(rot.y));
-		forward.y = -tan(glm::radians(rot.x));
+		forward.y = tan(glm::radians(rot.x));
 		forward.z = cos(glm::radians(rot.y));
 		return forward;
 	}
 
+	vec3 getRight() {
+		vec3 right;
+		right.x = sin(glm::radians(rot.y+90));
+		right.y = tan(glm::radians(rot.x));
+		right.z = cos(glm::radians(rot.y + 90));
+		return right;
+	}
+
+	vec3 getUp() {
+		vec3 up;
+		up.x = sin(glm::radians(rot.y));
+		up.y = tan(glm::radians(rot.x+90));
+		up.z = cos(glm::radians(rot.y));
+		return up;
+	}
+
 	glm::mat4& getTrans() {
 		if (bIsGetTransInThisTick) return trans;
-		trans = glm::mat4(1.0f);
+		if (parentObj) trans = parentObj->getTrans();
+		else trans = mat4(1);
 		trans = glm::translate(trans, pos);
-		trans = glm::scale(trans, scale);
 		trans = glm::rotate(trans, glm::radians(rot.y), glm::vec3(0.0, 1, 0));
 		trans = glm::rotate(trans, glm::radians(rot.z), glm::vec3(0.0, 0.0, 1.0));
 		trans = glm::rotate(trans, glm::radians(rot.x), glm::vec3(1, 0.0, 0));
-		if (parentObj)
-			trans = parentObj->getTrans() * trans;
+		trans = glm::scale(trans, scale);
 		bIsGetTransInThisTick = true;
 		return trans;
 	}
@@ -528,19 +697,21 @@ public:
 		updateTransform();
 	}
 
-	void applyColor(GLuint shaderId) {
-		unsigned int loc = glGetUniformLocation(shaderId, "vcolor");
-		glUniform4f(loc, color.x, color.y, color.z, color.w);
+	virtual bool guiStart() {
+		if (TickObj::guiStart()) {
+			ImGui::DragFloat3("pos", (float*)&pos, 0.04f, 0, 0, "%.2f");
+			ImGui::DragFloat3("rot", (float*)&rot, 1, 0, 0, "%.2f");
+			ImGui::DragFloat3("scale", (float*)&scale, 0.04f, 0, 0, "%.2f", 0.03f);
+			return true;
+		}
+		return false;
 	}
 
 	virtual void render() {
-		if (shader) {
-			shader->changeUniformValue("trans", &getTrans());
-			shader->use();
-			applyColor(shader->id);
-		} else {
-			assert(0 && name.c_str()); // shader 없음
-		}
+		assert(shader && &name); // shader 없음
+		shader->setUniform("model", getTrans());
+		shader->setUniform("color", color);
+		shader->use();
 		vo->render();
 	}
 
@@ -550,6 +721,23 @@ protected:
 	vec3 pos = vec3(0);
 	vec3 scale = vec3(1);
 	vec3 rot = vec3(0);
+public:
+	const vec3& getPos()const { return pos; }
+	const vec3& getRotation()const { return rot; }
+	const vec3& getScale()const { return scale; }
+	void setPos(const vec3& p) { pos = p; updateTransform(); }
+	void setRotation(const vec3& r) { rot = r; updateTransform(); }
+	void setScale(const vec3& s) { scale = s; updateTransform(); }
+	void translateX(float x) { updateTransform(); pos.x += x; }
+	void translateY(float y) { updateTransform(); pos.y += y; }
+	void translateZ(float z) { updateTransform(); pos.z += z; }
+	void rotateX(float x) { updateTransform(); rot.x += x; }
+	void rotateY(float y) { updateTransform(); rot.y += y; }
+	void rotateZ(float z) { updateTransform(); rot.z += z; }
+	void setParent(Obj* parent) { assert(parent != this); }
+	Obj* GetParent() { return parentObj; }
+	void setShader(Shader& shader) { this->shader = &shader; }
+	void updateTransform() { bIsGetTransInThisTick = false; }
 };
 
 class Camera : public Obj {
@@ -557,6 +745,7 @@ public:
 	glm::vec3 armVector = glm::vec3(0, 0, -10);
 	glm::vec3 target = glm::vec3(0, 0, 0);
 	glm::vec3 up = glm::vec3(0, 1, 0);
+	glm::vec3 viewPoint = glm::vec3(0, 1, 0);
 
 	float fov = 45;
 	bool isPerspective = true;
@@ -571,7 +760,7 @@ public:
 			UBO = new CameraShaderUniformBuffer();
 			UBO->create();
 		}
-		pos.z = -2;
+		name = "Camera";
 	}
 
 	virtual void tick(float dt) {
@@ -579,8 +768,8 @@ public:
 		bIsGetVPInThisTick = 0;
 	}
 
-	virtual void bind(Window& win) {
-		UBO->setData(*this, win);
+	virtual void bind() {
+		UBO->setData(*this, Window::get());
 		UBO->bindBuffer();
 	}
 
@@ -602,31 +791,34 @@ public:
 		}
 		if (~bIsGetVPInThisTick & 0b1) {
 			if (isPerspective)
-				p = glm::perspective(glm::radians(fov), win.ratio, 0.1f, 1000.f);
+				p = glm::perspective(glm::radians(fov), win.getRatio(), 0.1f, 1000.f);
 			else {
 				float size = 5;
-				p = glm::ortho<float>(-size * win.ratio, size * win.ratio, -size, size, 0.1, 50.f);
+				p = glm::ortho<float>(-size * win.getRatio(), size * win.getRatio(), -size, size, 0.1, 50.f);
 			}
 			bIsGetVPInThisTick |= 0b1;
 		}
 
 		vp = p * v;
+		viewPoint = glm::inverse(v) * vec4(0, 0, 0, 1);
 		bIsGetTransInThisTick = 1;
 		return vp;
 	}
 
+	vec3& getViewPoint() {
+		return viewPoint;
+	}
+
 	void translate(vec3 off) {
-		vec3 right = glm::normalize(glm::cross(target - pos, up));
-		vec3 forward = glm::normalize(glm::cross(up, right));
-		vec3 moveOff = forward * off.z + right * off.x;
+		vec3 forward = getForward();
+		vec3 right = glm::normalize(glm::cross(forward, up));
+		vec3 up = glm::normalize(glm::cross(right, forward));
+		vec3 moveOff = forward * off.z + /*glm::reflect(up, forward)*/up * off.y + right * off.x;
 		pos += moveOff;
-		target += moveOff;
 	}
 
 	void render() {}
-	virtual void initName() {
-		name = "Camera";
-	}
+	void gui(){}
 
 private:
 	uint bIsGetTransInThisTick = 0;
@@ -641,7 +833,7 @@ void CameraShaderUniformBuffer::setData(Camera& cam, Window& win) {
 	this->p = &cam.p;
 	this->v = &cam.v;
 	this->vp = &cam.getTrans(win);
-	this->pos = &cam.getPos();
+	this->pos = &cam.getViewPoint();
 }
 
 
@@ -653,7 +845,7 @@ enum EMouse {
 	MOUSE_OFF_X, MOUSE_OFF_Y,
 	MOUSE_NORMALIZE_X, MOUSE_NORMALIZE_Y,
 	MOUSE_NORMALIZE_OFF_X, MOUSE_NORMALIZE_OFF_Y, // 안만듬
-	MOUSE_L_BUTTON,MOUSE_R_BUTTON,MOUSE_M_BUTTON,
+	MOUSE_L_BUTTON, MOUSE_M_BUTTON, MOUSE_R_BUTTON,
 	MOUSE_WHEEL,
 	COUNT
 };
@@ -767,8 +959,8 @@ void mouseWheel(int wheel, int direction, int x, int y) {
 }
 
 void setMousePos(int x, int y) {
-	float screenMouseX = (float)x / Window::get().halfWidth - 1;
-	float screenMouseY = -(float)y / Window::get().halfHeight + 1;
+	float screenMouseX = (float)x / Window::get().getHalfWidth() - 1;
+	float screenMouseY = -(float)y / Window::get().getHalfHeight() + 1;
 
 	Input::mouse[EMouse::MOUSE_X] = x;
 	Input::mouse[EMouse::MOUSE_Y] = y;
@@ -789,7 +981,7 @@ void mouseClickHandler(int button, int state, int x, int y) {
 void mouseMotionHandler(int x, int y) {
 	//debug("mouseMotionHandler: x(%d), y(%d)", x,y);
 	ImGui_ImplGLUT_MotionFunc(x, y);
-	
+
 }
 
 void bindInput() {
@@ -804,7 +996,6 @@ void bindInput() {
 
 	Input::mouse[EMouse::MOUSE_WHEEL] = 0;
 }
-
 
 
 
@@ -836,6 +1027,79 @@ void renderQuad() {
 	glBindVertexArray(0);
 }
 
+// renderCube() renders a 1x1 3D cube in NDC.
+// -------------------------------------------------
+unsigned int cubeVAO = 0;
+unsigned int cubeVBO = 0;
+void renderCube() {
+	// initialize (if necessary)
+	if (cubeVAO == 0) {
+		float vertices[] = {
+			// back face
+			-1.0f, -1.0f, -1.0f, 0.0f, 0.0f, -1.0f, 0.0f, 0.0f, // bottom-left
+			1.0f, 1.0f, -1.0f, 0.0f, 0.0f, -1.0f, 1.0f, 1.0f, // top-right
+			1.0f, -1.0f, -1.0f, 0.0f, 0.0f, -1.0f, 1.0f, 0.0f, // bottom-right         
+			1.0f, 1.0f, -1.0f, 0.0f, 0.0f, -1.0f, 1.0f, 1.0f, // top-right
+			-1.0f, -1.0f, -1.0f, 0.0f, 0.0f, -1.0f, 0.0f, 0.0f, // bottom-left
+			-1.0f, 1.0f, -1.0f, 0.0f, 0.0f, -1.0f, 0.0f, 1.0f, // top-left
+			// front face
+			-1.0f, -1.0f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, // bottom-left
+			1.0f, -1.0f, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, // bottom-right
+			1.0f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, // top-right
+			1.0f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, // top-right
+			-1.0f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 1.0f, // top-left
+			-1.0f, -1.0f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, // bottom-left
+			// left face
+			-1.0f, 1.0f, 1.0f, -1.0f, 0.0f, 0.0f, 1.0f, 0.0f, // top-right
+			-1.0f, 1.0f, -1.0f, -1.0f, 0.0f, 0.0f, 1.0f, 1.0f, // top-left
+			-1.0f, -1.0f, -1.0f, -1.0f, 0.0f, 0.0f, 0.0f, 1.0f, // bottom-left
+			-1.0f, -1.0f, -1.0f, -1.0f, 0.0f, 0.0f, 0.0f, 1.0f, // bottom-left
+			-1.0f, -1.0f, 1.0f, -1.0f, 0.0f, 0.0f, 0.0f, 0.0f, // bottom-right
+			-1.0f, 1.0f, 1.0f, -1.0f, 0.0f, 0.0f, 1.0f, 0.0f, // top-right
+			// right face
+			1.0f, 1.0f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, // top-left
+			1.0f, -1.0f, -1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, // bottom-right
+			1.0f, 1.0f, -1.0f, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f, // top-right         
+			1.0f, -1.0f, -1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, // bottom-right
+			1.0f, 1.0f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, // top-left
+			1.0f, -1.0f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, // bottom-left     
+		   // bottom face
+		   -1.0f, -1.0f, -1.0f, 0.0f, -1.0f, 0.0f, 0.0f, 1.0f, // top-right
+		   1.0f, -1.0f, -1.0f, 0.0f, -1.0f, 0.0f, 1.0f, 1.0f, // top-left
+		   1.0f, -1.0f, 1.0f, 0.0f, -1.0f, 0.0f, 1.0f, 0.0f, // bottom-left
+		   1.0f, -1.0f, 1.0f, 0.0f, -1.0f, 0.0f, 1.0f, 0.0f, // bottom-left
+		   -1.0f, -1.0f, 1.0f, 0.0f, -1.0f, 0.0f, 0.0f, 0.0f, // bottom-right
+		   -1.0f, -1.0f, -1.0f, 0.0f, -1.0f, 0.0f, 0.0f, 1.0f, // top-right
+		   // top face
+		   -1.0f, 1.0f, -1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, // top-left
+		   1.0f, 1.0f, 1.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f, // bottom-right
+		   1.0f, 1.0f, -1.0f, 0.0f, 1.0f, 0.0f, 1.0f, 1.0f, // top-right     
+		   1.0f, 1.0f, 1.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f, // bottom-right
+		   -1.0f, 1.0f, -1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, // top-left
+		   -1.0f, 1.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f  // bottom-left        
+		};
+		glGenVertexArrays(1, &cubeVAO);
+		glGenBuffers(1, &cubeVBO);
+		// fill buffer
+		glBindBuffer(GL_ARRAY_BUFFER, cubeVBO);
+		glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+		// link vertex attributes
+		glBindVertexArray(cubeVAO);
+		glEnableVertexAttribArray(0);
+		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
+		glEnableVertexAttribArray(1);
+		glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(3 * sizeof(float)));
+		glEnableVertexAttribArray(2);
+		glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(6 * sizeof(float)));
+		glBindBuffer(GL_ARRAY_BUFFER, 0);
+		glBindVertexArray(0);
+	}
+	// render Cube
+	glBindVertexArray(cubeVAO);
+	glDrawArrays(GL_TRIANGLES, 0, 36);
+	glBindVertexArray(0);
+}
+
 
 
 
@@ -854,7 +1118,7 @@ public:
 	static vector<DebugMesh> mesh;
 	static int drawIdx;
 
-	static void drawLine(vec3 a, vec3 b, vec3 color=vec3(1)) {
+	static void drawLine(vec3 a, vec3 b, vec3 color = vec3(1)) {
 		while (mesh.size() <= drawIdx) {
 			mesh.push_back(DebugMesh());
 			mesh.back().vo.drawStyle = GL_LINES;
@@ -872,11 +1136,11 @@ public:
 	}
 
 	static void render() {
-		auto unlit = Shader::shaders["unlit"];
-		unlit->changeUniformValue("trans", &mat4_1);
+		auto unlit = Shader::get("unlit,unlit");
+		unlit->setUniform("model", mat4_1);
 
-		for (size_t i = 0; i < drawIdx; i++){
-			unlit->changeUniformValue("color", &mesh[i].color);
+		for (size_t i = 0; i < drawIdx; i++) {
+			unlit->setUniform("color", mesh[i].color);
 			unlit->use();
 			mesh[i].vo.render();
 		}
@@ -886,5 +1150,3 @@ public:
 
 vector<DebugMesh> Debug::mesh;
 int Debug::drawIdx = 0;
-
-

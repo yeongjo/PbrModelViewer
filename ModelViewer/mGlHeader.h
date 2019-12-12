@@ -60,28 +60,40 @@ GLuint compliePartShader(char* ch, GLuint type, const char* errorName) {
 	return vs;
 }
 
-GLuint complieShader(const char* shader) {
+GLuint complie(const char* vsPath, const char* fsPath, GLuint ShaderProgramID=0) {
 	std::stringstream s_vs;
-	s_vs << "shader/" << shader;
-	std::stringstream s_fs;
-	s_fs << s_vs.str() << ".fs";
-	s_vs << ".vs";
+	s_vs << "shader/" << vsPath << ".vs";
 	char* t_vs = readTxt(s_vs.str().c_str());
+
+	std::stringstream s_fs;
+	s_fs << "shader/" << fsPath << ".fs";
 	char* t_fs = readTxt(s_fs.str().c_str());
 
+	if (!t_vs) {
+		printf("ERROR: [%s].vs 경로에 없음 컴파일 실패\n", vsPath);
+	}
+	if (!t_fs) {
+		printf("ERROR: [%s].fs 경로에 없음 컴파일 실패\n", fsPath);
+	}
 	if (!t_vs || !t_fs) {
-		printf("ERROR: [%s] 경로에 없음 컴파일 실패\n", shader);
 		return 0;
 	}
 
 	std::stringstream ss;
-	ss << "ERROR: [" << shader << "] vertex shader 컴파일 실패 :\n";
+	ss << "ERROR: [" << vsPath << "] vertex shader 컴파일 실패 :\n";
 	GLuint vs = compliePartShader(t_vs, GL_VERTEX_SHADER, ss.str().c_str());
 	ss.clear(); ss.str("");
-	ss << "ERROR: [" << shader << "] fragment shader 컴파일 실패 :\n";
+	ss << "ERROR: [" << vsPath << "] fragment shader 컴파일 실패 :\n";
 	GLuint fs = compliePartShader(t_fs, GL_FRAGMENT_SHADER, ss.str().c_str());
 
-	GLuint ShaderProgramID = glCreateProgram(); //--- 세이더 프로그램 만들기
+	free(t_vs);
+	free(t_fs);
+
+	if(!ShaderProgramID)
+		ShaderProgramID = glCreateProgram(); //실패시 0반환
+	else {
+		//glLinkProgram
+	}
 	glAttachShader(ShaderProgramID, vs); // 세이더 프로그램에 버텍스 세이더 붙이기
 	glAttachShader(ShaderProgramID, fs); // 세이더 프로그램에 프래그먼트 세이더 붙이기
 	glLinkProgram(ShaderProgramID); // 세이더 프로그램 링크하기
@@ -91,15 +103,15 @@ GLuint complieShader(const char* shader) {
 	glGetProgramiv(ShaderProgramID, GL_LINK_STATUS, &result); // 세이더가 잘 연결되었는지 체크하기
 	if (!result) {
 		glGetProgramInfoLog(ShaderProgramID, 512, NULL, glErrorLog);
-		std::cerr << "ERROR: " << shader << "shader program 연결 실패\n" << glErrorLog << std::endl;
+		std::cerr << "ERROR: [" << vsPath << "]shader program 연결 실패\n" << glErrorLog << std::endl;
 		return false;
 	}
 	// 여러 개의 프로그램 만들 수 있고, 특정 프로그램을 사용하려면
 	// glUseProgram 함수를 호출하여 사용 할 특정 프로그램을 지정한다.
 	// 사용하기 직전에 호출할 수 있다.
-
-	free(t_vs);
-	free(t_fs);
+	// Always detach shaders after a successful link.
+	glDetachShader(ShaderProgramID, vs);
+	glDetachShader(ShaderProgramID, fs);
 
 	return ShaderProgramID;
 }
@@ -126,8 +138,7 @@ public:
 	static map<string, VO*> loadedObjs;
 	
 	static VO* loadObj(const char *path) {
-		pair<map<string, VO*>::iterator, bool > pr;
-		pr = loadedObjs.insert(std::pair<string, VO*>(path, NULL));
+		auto pr = loadedObjs.insert(std::pair<string, VO*>(path, NULL));
 		if (pr.second == true) {
 			pr.first->second = readObj(path);
 		}
@@ -181,12 +192,12 @@ public:
 		assert(isBind && "not binded VO used.");
 		glBindVertexArray(VAO);
 		if (verIdx == -1)
-			verIdx = vertexIndices.size();
+			verIdx = (int)vertexIndices.size();
 
 		if (verIdx >= 3)
 			;// glDrawElements(GL_TRIANGLES, 0, vertex.size());
 		else
-			glDrawArrays(drawStyle, 0, vertex.size());
+			glDrawArrays(drawStyle, 0, (GLsizei)vertex.size());
 	}
 };
 
@@ -221,7 +232,7 @@ VO* readObj(const char* file_path) {
 		assert(ret && file_path);
 	}
 
-	uint shape_size = shapes.size();
+	uint shape_size = (uint)shapes.size();
 	for (size_t s = 0; s < shape_size; s++) {
 		// Loop over faces(polygon)
 		size_t index_offset = 0;
@@ -244,14 +255,13 @@ VO* readObj(const char* file_path) {
 				tinyobj::real_t tx = attrib.texcoords[2 * idx.texcoord_index + 0];
 				tinyobj::real_t ty = attrib.texcoords[2 * idx.texcoord_index + 1];
 				// Optional: vertex colors
-				tinyobj::real_t red = attrib.colors[3 * idx.vertex_index + 0];
-				tinyobj::real_t green = attrib.colors[3 * idx.vertex_index + 1];
-				tinyobj::real_t blue = attrib.colors[3 * idx.vertex_index + 2];
+				//tinyobj::real_t red = attrib.colors[3 * idx.vertex_index + 0];
+				//tinyobj::real_t green = attrib.colors[3 * idx.vertex_index + 1];
+				//tinyobj::real_t blue = attrib.colors[3 * idx.vertex_index + 2];
 
 				vo->vertex.push_back(vec3(vx, vy, vz));
 				vo->normal.push_back(vec3(nx, ny, nz));
 				vo->uv.push_back(vec2(tx, ty));
-				vo->color.push_back(vec3(rc(), rc(), rc()));
 			}
 			index_offset += fv;
 
@@ -259,7 +269,8 @@ VO* readObj(const char* file_path) {
 			shapes[s].mesh.material_ids[f];
 		}
 	}
-
+	/*shapes.shrink_to_fit();
+	materials.shrink_to_fit();*/
 	return vo;
 }
 

@@ -54,10 +54,70 @@
       <Filter>imgui</Filter>
     </ClInclude>
     <ClInclude Include="mGlHeader.h" />
+    <ClInclude Include="portable-file-dialog.h" />
   </ItemGroup>
   <ItemGroup>
     <Filter Include="imgui">
       <UniqueIdentifier>{7ced5881-bab4-4604-a549-34c75ea07043}</UniqueIdentifier>
     </Filter>
+    <Filter Include="shader">
+      <UniqueIdentifier>{5a36a393-f0b8-4219-91a6-67348d6c77ef}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="shader\background.fs">
+      <Filter>shader</Filter>
+    </None>
+    <None Include="shader\background.vs">
+      <Filter>shader</Filter>
+    </None>
+    <None Include="shader\brdf.fs">
+      <Filter>shader</Filter>
+    </None>
+    <None Include="shader\brdf.vs">
+      <Filter>shader</Filter>
+    </None>
+    <None Include="shader\cubemap.vs">
+      <Filter>shader</Filter>
+    </None>
+    <None Include="shader\equirectangular_to_cubemap.fs">
+      <Filter>shader</Filter>
+    </None>
+    <None Include="shader\grid.fs">
+      <Filter>shader</Filter>
+    </None>
+    <None Include="shader\grid.vs">
+      <Filter>shader</Filter>
+    </None>
+    <None Include="shader\irradiance_convolution.fs">
+      <Filter>shader</Filter>
+    </None>
+    <None Include="shader\pbr.fs">
+      <Filter>shader</Filter>
+    </None>
+    <None Include="shader\pbr.vs">
+      <Filter>shader</Filter>
+    </None>
+    <None Include="shader\postprocess.fs">
+      <Filter>shader</Filter>
+    </None>
+    <None Include="shader\postprocess.vs">
+      <Filter>shader</Filter>
+    </None>
+    <None Include="shader\prefilter.fs">
+      <Filter>shader</Filter>
+    </None>
+    <None Include="shader\tri.fs">
+      <Filter>shader</Filter>
+    </None>
+    <None Include="shader\tri.vs">
+      <Filter>shader</Filter>
+    </None>
+    <None Include="shader\unlit.fs">
+      <Filter>shader</Filter>
+    </None>
+    <None Include="shader\unlit.vs">
+      <Filter>shader</Filter>
+    </None>
   </ItemGroup>
 </Project>

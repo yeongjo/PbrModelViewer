@@ -190,9 +190,9 @@ protected:
 		{
 
 			btHashString key(type);
-			const int* valuePtr = mTypeLookup.find(key);
-			if (valuePtr)
-				return *valuePtr;
+			const int* textureInfo = mTypeLookup.find(key);
+			if (textureInfo)
+				return *textureInfo;
 			
 			return -1;
 		}
