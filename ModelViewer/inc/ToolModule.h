@@ -190,13 +190,25 @@ class Texture {
 protected:
 	int width, height, nrChannels;
 	unsigned int id;
+	static map<string, Texture*> loadedTextures;
 public:
 	const int getWidth() const { return width; }
 	const int getHeight() const { return height; }
 	const int getNrChannels() const { return nrChannels; }
 	const unsigned int getId() const { return id; }
 
+	static Texture* get(const char* name) {
+		auto iter = loadedTextures.find(name);
+		if (iter != loadedTextures.end())
+			return iter->second;
+		return nullptr;
+	}
+
 	static Texture* load(const char* path, unsigned type= GL_RGB, unsigned tagetType= GL_RGB) {
+		auto loaded = get(path);
+		if (loaded) {
+			return loaded;
+		}
 		auto temp = new Texture();
 		auto& id = temp->id;
 		auto& width = temp->width;
@@ -224,22 +236,15 @@ public:
 			assert("Failed to load texture: " && path && 0);
 		}
 		stbi_image_free(data);
-		return temp;
-	}
-
-	static Texture* createEmpty(int width, int height, unsigned type= GL_RGB16F, unsigned color=GL_RGB) {
-		auto temp = new Texture;
-		temp->width = width;
-		temp->height = height;
-		glGenTextures(1, &temp->id);
-		glBindTexture(GL_TEXTURE_2D, temp->id);
-		glTexImage2D(GL_TEXTURE_2D, 0, type, width, height, 0, color, GL_FLOAT, NULL);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		loadedTextures[path] = temp;
 		return temp;
 	}
 
 	static Texture* loadHDR(const char* path) {
+		auto loaded = get(path);
+		if (loaded) {
+			return loaded;
+		}
 		auto temp = new Texture();
 		auto& id = temp->id;
 		auto& width = temp->width;
@@ -261,15 +266,30 @@ public:
 		} else {
 			std::cout << "Failed to load HDR image." << std::endl;
 		}
+		loadedTextures[path] = temp;
+		return temp;
+	}
+
+	static Texture* createEmpty(int width, int height, unsigned type= GL_RGB16F, unsigned color=GL_RGB) {
+		auto temp = new Texture;
+		temp->width = width;
+		temp->height = height;
+		glGenTextures(1, &temp->id);
+		glBindTexture(GL_TEXTURE_2D, temp->id);
+		glTexImage2D(GL_TEXTURE_2D, 0, type, width, height, 0, color, GL_FLOAT, NULL);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 		return temp;
 	}
 };
+map<string, Texture*> Texture::loadedTextures;
 
 class Shader;
 class Cubemap : public Texture {
 public:
 	void init(int width, int height) {
-		glGenTextures(1, &id);
+		if(id==0)
+			glGenTextures(1, &id);
 		glBindTexture(GL_TEXTURE_CUBE_MAP, id);
 		for (unsigned int i = 0; i < 6; ++i) {
 			glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGB16F, width, height, 0, GL_RGB, GL_FLOAT, nullptr);
@@ -417,6 +437,12 @@ public:
 		if (iter != shaders.end())
 			return iter->second;
 		return nullptr;
+	}
+
+	static void recomplieAll() {
+		for (auto i = shaders.begin(); i != shaders.end(); ++i) {
+			i->second->recomplie();
+		}
 	}
 
 	void complie(const char* vsPath) {

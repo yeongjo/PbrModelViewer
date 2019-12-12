@@ -279,6 +279,7 @@ public:
 		break;
 	}
 
+	if(severity != GL_DEBUG_SEVERITY_NOTIFICATION)
 	printf("%d: %s of %s severity, raised from %s: %s\n",
 		id, _type, _severity, _source, msg);
 }
@@ -343,16 +344,43 @@ void onKeyboard(unsigned char key, int x, int y, bool isDown) {
 
 	}
 }
-Texture albedoMap;
-Texture ao_r_mMap;
-Texture normalMap;
-void initPbr() {
-	auto pbr = Shader::create("pbr", "pbr");
+Cubemap envCubemap;
+Cubemap irradianceMap;
+Cubemap prefilterMap;
+
+void loadPbrCubemap(const char* path= "textures/Road_to_MonumentValley_Ref.hdr") {
 	auto equirectangular_to_cubemap = Shader::create("cubemap", "equirectangular_to_cubemap");
 	auto irradianceShader = Shader::create("cubemap", "irradiance_convolution");
 	auto prefilterShader = Shader::create("cubemap", "prefilter");
-	auto brdf = Shader::create("brdf", "brdf");
+	auto pbr = Shader::create("pbr", "pbr");
 	auto background = Shader::create("background", "background");
+
+	auto hdr = Texture::loadHDR(path);
+
+
+	envCubemap.init(512, 512);
+	envCubemap.convertFromEquirectangular(*hdr, equirectangular_to_cubemap);
+
+	irradianceMap.init(32, 32);
+	irradianceMap.convertFromEquirectangular(envCubemap, irradianceShader);
+
+	prefilterMap.init(128, 128);
+	// generate mipmaps for the cubemap so OpenGL automatically allocates the required memory.
+	glGenerateMipmap(GL_TEXTURE_CUBE_MAP);
+	prefilterMap.quasiMonteCarloSimulation(envCubemap, prefilterShader);
+
+	background->setUniform("environmentMap", envCubemap);
+	pbr->setUniform("prefilterMap", prefilterMap);
+	pbr->setUniform("irradianceMap", irradianceMap);
+}
+
+//Texture albedoMap;
+//Texture ao_r_mMap;
+//Texture normalMap;
+void initPbr() {
+	auto pbr = Shader::create("pbr", "pbr");
+	
+	auto brdf = Shader::create("brdf", "brdf");
 
 	glEnable(GL_DEPTH_TEST);
 	// set depth function to less than AND equal for skybox depth trick.
@@ -360,23 +388,8 @@ void initPbr() {
 	// enable seamless cubemap sampling for lower mip levels in the pre-filter map.
 	glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
 
-
-	Texture* hdr;
-	hdr = Texture::loadHDR("textures/Road_to_MonumentValley_Ref.hdr");
-
-	Cubemap envCubemap;
-	envCubemap.init(512, 512);
-	envCubemap.convertFromEquirectangular(*hdr, equirectangular_to_cubemap);
-
-	Cubemap irradianceMap;
-	irradianceMap.init(32, 32);
-	irradianceMap.convertFromEquirectangular(envCubemap, irradianceShader);
-
-	Cubemap prefilterMap;
-	prefilterMap.init(128, 128);
-	// generate mipmaps for the cubemap so OpenGL automatically allocates the required memory.
-	glGenerateMipmap(GL_TEXTURE_CUBE_MAP);
-	prefilterMap.quasiMonteCarloSimulation(envCubemap, prefilterShader);
+	loadPbrCubemap();
+	
 
 	// pbr: generate a 2D LUT from the BRDF equations used.
 	FrameBuffer temp;
@@ -393,17 +406,16 @@ void initPbr() {
 
 	Window::get().resetViewport();
 
-	albedoMap = *Texture::load("textures/Cerberus_A.png");
+	auto defaultTexture = Texture::load("textures/black.png");
+	/*albedoMap = *Texture::load("textures/Cerberus_A.png");
 	ao_r_mMap = *Texture::load("textures/Cerberus_AO_R_M.png");
-	normalMap = *Texture::load("textures/Cerberus_N.png");
+	normalMap = *Texture::load("textures/Cerberus_N.png");*/
 
-	background->setUniform("environmentMap", envCubemap);
-	pbr->setUniform("prefilterMap", prefilterMap);
-	pbr->setUniform("irradianceMap", irradianceMap);
+	
 	pbr->setUniform("brdfLUT", temp.colorTex);
-	pbr->setUniform("albedoMap", albedoMap);
-	pbr->setUniform("ao_r_m", ao_r_mMap);
-	pbr->setUniform("normalMap", normalMap);
+	pbr->setUniform("albedoMap", *defaultTexture);
+	pbr->setUniform("ao_r_m", *defaultTexture);
+	pbr->setUniform("normalMap", *defaultTexture);
 }
 
 void init() {
@@ -414,7 +426,7 @@ void init() {
 	gridShader.complie("grid");
 
 
-
+	
 
 	/*glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);*/
@@ -434,6 +446,8 @@ void init() {
 
 	cam = new Camera();
 	cam->armVector.z = -20;
+	cam->rotateY(30);
+	cam->rotateX(30);
 
 	glm::vec3 lightPositions[] = {
 		glm::vec3(-10.0f, 10.0f, 10.0f),
@@ -464,6 +478,7 @@ void init() {
 	triObj->setShader(*pbr);
 	triObj->setScale(vec3(9));
 	triObj->name = "gun";*/
+	auto defaultTex = Texture::load("textures/black.png");
 
 	floorObj = new PbrObj();
 	floorObj->loadObj("model/cube.obj");
@@ -471,7 +486,7 @@ void init() {
 	floorObj->setScale(vec3(5, 0.1f, 5));
 	floorObj->setPos(vec3(-1, 0, 0));
 	floorObj->name = "floor";
-	floorObj->setTextures(albedoMap, ao_r_mMap, normalMap);
+	floorObj->setTextures(*defaultTex, *defaultTex, *defaultTex);
 
 	orbits.push_back(new ShapeObj());
 	orbits.push_back(new ShapeObj());
@@ -479,12 +494,12 @@ void init() {
 	int armLen = -2;
 	for (auto var : orbits) {
 		armLen += 4;
-		var->setPos(vec3(armLen,0,0));
+		var->setPos(vec3(armLen, 0, 0));
 		var->setShader(*pbr);
 		var->loadObj("model/sphere.obj");
 		var->color = vec4(f(), f(), f(), f());
 		var->name = "sphere";
-		var->setTextures(albedoMap, ao_r_mMap, normalMap);
+		var->setTextures(*defaultTex, *defaultTex, *defaultTex);
 	}
 
 
@@ -559,8 +574,9 @@ void imguiRender() {
 		return;
 	}
 	if (ImGui::TreeNode("etc")) {
-		if (ImGui::Button("pbr recomplie")) {
-			pbr->recomplie();
+		if (ImGui::Button("shader recomplie")) {
+			Shader::recomplieAll();
+			//pbr->recomplie();
 		}
 		if (ImGui::Button("Load Obj##3b")) {
 			auto f = pfd::open_file("Choose files to read", DEFAULT_PATH,
@@ -572,12 +588,24 @@ void imguiRender() {
 				temp->loadObj(name.c_str());
 				break;
 			}
-			temp->albedo = albedoMap;
-			temp->ao_r_m = ao_r_mMap;
-			temp->normal = normalMap;
+			auto defaultTexture = Texture::load("textures/black.png");
+			temp->albedo = *defaultTexture;
+			temp->ao_r_m = *defaultTexture;
+			temp->normal = *defaultTexture;
 			temp->setShader(*Shader::get("pbr,pbr"));
 			temp->name = "load";
 		}
+		if (ImGui::Button("Load HDR##3b")) {
+			auto f = pfd::open_file("Choose files to read", DEFAULT_PATH,
+				{ "*.hdr *.jpg *.png" });
+			std::cout << "Selected files:";
+
+			for (auto const& name : f.result()) {
+				loadPbrCubemap(name.c_str());
+				break;
+			}
+		}
+		
 		ImGui::Spacing();
 		ImGui::SliderFloat("metallic", &metallic, 0.0f, 1.0f, "%.2f");
 		ImGui::SliderFloat("roughness", &roughness, 0.0f, 1.0f, "%.2f");
