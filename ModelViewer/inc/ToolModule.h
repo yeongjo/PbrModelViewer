@@ -546,7 +546,6 @@ private:
 		if (uniform) {
 			uniform->textureInfo.id = ptr.getId();
 			uniform->textureInfo.type = type;
-			uniform->apply();
 		} else {
 			TextureUniform temp(*this, name);
 			auto bindInfo = TextureBindInfo{ ptr.getId(), lastTextureIdx, type };
