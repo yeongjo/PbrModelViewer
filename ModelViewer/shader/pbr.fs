@@ -34,7 +34,12 @@ const float PI = 3.14159265359;
 // ----------------------------------------------------------------------------
 vec3 getNormalFromMap()
 {
-    vec3 tangentNormal = texture(normalMap, TexCoords).xyz * 2.0 - 1.0;
+	vec3 texNormal = texture(normalMap, TexCoords).xyz;
+    vec3 tangentNormal;
+	if(texNormal.x+texNormal.y+texNormal.z<0.01f)
+		tangentNormal = vec3(0,0,0.5f);
+	else
+		tangentNormal = texNormal * 2.0 - 1.0;
 
     vec3 Q1  = dFdx(WorldPos);
     vec3 Q2  = dFdy(WorldPos);
@@ -95,19 +100,27 @@ vec3 fresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness)
 }   
 // ----------------------------------------------------------------------------
 void main()
-{		
-	vec3  _albedo = albedo + pow(texture(albedoMap, TexCoords).rgb, vec3(2.2));
+{
+	vec3 t_albedo = pow(texture(albedoMap, TexCoords).rgb, vec3(2.2));
+	vec3  _albedo = albedo;
+	_albedo = t_albedo;
 	vec3 temp = texture(ao_r_m, TexCoords).rgb;
-    float _metallic = metallic + temp.b;
-    float _roughness = roughness + temp.g;
-    float _ao = ao + temp.r;
-
-    vec3 N = Normal;//getNormalFromMap();
+	float _metallic = metallic;
+	float _roughness = roughness;
+	float _ao = ao;
+	if(temp.r+temp.g+temp.b > 0.01)
+	{
+		_ao = temp.r;
+		_roughness = clamp(temp.g+roughness,0,1);
+		_metallic = temp.b;
+	}
+    // input lighting data
+    vec3 N = getNormalFromMap();
     vec3 V = normalize(viewPos - WorldPos);
     vec3 R = reflect(-V, N); 
 
     // calculate reflectance at normal incidence; if dia-electric (like plastic) use F0 
-    // of 0.04 and if it's a metal, use the albedo color as F0 (metallic workflow)    
+    // of 0.04 and if it's a metal, use the _albedo color as F0 (_metallic workflow)    
     vec3 F0 = vec3(0.04); 
     F0 = mix(F0, _albedo, _metallic);
 
@@ -174,7 +187,5 @@ void main()
     // gamma correct
     color = pow(color, vec3(1.0/2.2)); 
 
-    FragColor = vec4(color,1);
-    //FragColor = vec4(texture(irradianceMap, R).rgb,1);
-    //FragColor = vec4(1.0);
+    FragColor = vec4(color, 1.0);
 }

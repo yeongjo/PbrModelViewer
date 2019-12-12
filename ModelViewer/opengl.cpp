@@ -122,25 +122,34 @@ int Light::lightCount = 0;
 
 class PbrObj : public Obj {
 public:
-	Texture albedo;
-	Texture ao_r_m;
-	Texture normal;
+	Texture albedoMap;
+	Texture ao_r_mMap;
+	Texture normalMap;
 
-	void setTextures(Texture& albedo,
+	float metallic = 0;
+	float roughness = 0;
+	float ao = 1;
+	vec3 albedo = vec3(1);
+
+	void setTextures(Texture& albedoMap,
 		Texture& ao_r_m,
 		Texture& normal) {
-		this->albedo = albedo;
-		this->ao_r_m = ao_r_m;
-		this->normal = normal;
+		this->albedoMap = albedoMap;
+		this->ao_r_mMap = ao_r_m;
+		this->normalMap = normal;
 	}
 
 	virtual void render() {
 		if (shader) {
 			shader->setUniform("model", getTrans());
-			shader->setUniform("albedoMap", albedo);
-			shader->setUniform("ao_r_m", ao_r_m);
-			shader->setUniform("normalMap", normal);
-			//shader->use();
+			shader->setUniform("metallic", metallic);
+			shader->setUniform("roughness", roughness);
+			shader->setUniform("ao", ao);
+			shader->setUniform("albedo", albedo);
+			shader->setUniform("albedoMap", albedoMap);
+			shader->setUniform("ao_r_m", ao_r_mMap);
+			shader->setUniform("normalMap", normalMap);
+			shader->use();
 		} else {
 			assert(0 && name.c_str()); // shader 없음
 		}
@@ -149,11 +158,18 @@ public:
 
 	virtual bool guiStart() {
 		if (Obj::guiStart()) {
-			if (ImGui::ImageButton((void*)albedo.getId(), ImVec2(32, 32))) openFile(albedo);
+			ImGui::SliderFloat("metallic", &metallic, 0.0f, 1.0f, "%.2f");
+			ImGui::SliderFloat("roughness", &roughness, 0.0f, 1.0f, "%.2f");
+			ImGui::SliderFloat("ao", &ao, 0.0f, 1.0f, "%.2f");
+			ImGui::ColorEdit3("albedo##3", (float*)&albedo);
+			if (ImGui::ImageButton((void*)albedoMap.getId(), ImVec2(32, 32)))
+				openFile(albedoMap);
 			ImGui::SameLine(); ImGui::Text("albedo");
-			if(ImGui::ImageButton((void*)ao_r_m.getId(), ImVec2(32, 32))) openFile(ao_r_m);
+			if(ImGui::ImageButton((void*)ao_r_mMap.getId(), ImVec2(32, 32)))
+				openFile(ao_r_mMap);
 			ImGui::SameLine(); ImGui::Text("ao_r_m");
-			if(ImGui::ImageButton((void*)normal.getId(), ImVec2(32, 32))) openFile(normal);
+			if(ImGui::ImageButton((void*)normalMap.getId(), ImVec2(32, 32)))
+				openFile(normalMap);
 			ImGui::SameLine(); ImGui::Text("normal");
 			return true;
 		}
@@ -407,9 +423,6 @@ void initPbr() {
 	Window::get().resetViewport();
 
 	auto defaultTexture = Texture::load("textures/black.png");
-	/*albedoMap = *Texture::load("textures/Cerberus_A.png");
-	ao_r_mMap = *Texture::load("textures/Cerberus_AO_R_M.png");
-	normalMap = *Texture::load("textures/Cerberus_N.png");*/
 
 	
 	pbr->setUniform("brdfLUT", temp.colorTex);
@@ -447,7 +460,7 @@ void init() {
 	cam = new Camera();
 	cam->armVector.z = -20;
 	cam->rotateY(30);
-	cam->rotateX(30);
+	cam->rotateX(-30);
 
 	glm::vec3 lightPositions[] = {
 		glm::vec3(-10.0f, 10.0f, 10.0f),
@@ -545,7 +558,8 @@ void loop() {
 		vec3 move(dt * 1 * Input::mouse[EMouse::MOUSE_OFF_X], dt * -1 * Input::mouse[EMouse::MOUSE_OFF_Y],0);
 		cam->translate(move);
 	}
-	cam->armVector.z = clamp(-10 + Input::mouse[EMouse::MOUSE_WHEEL], -100, -1);
+	Input::mouse[EMouse::MOUSE_WHEEL] = clamp(Input::mouse[EMouse::MOUSE_WHEEL], -100, -1);
+	cam->armVector.z = Input::mouse[EMouse::MOUSE_WHEEL];
 
 	Bullet::tick(dt);
 	Scene::activeScene->tick(dt);
@@ -560,11 +574,7 @@ void loop() {
 	glutPostRedisplay();
 }
 
-float a = 0;
-float metallic = 0;
-float roughness = 0;
-float ao = 0;
-vec3 albedo = vec3(0);
+
 void imguiRender() {
 	auto pbr = Shader::get("pbr,pbr");
 	// Main body of the Demo window starts here.
@@ -582,41 +592,30 @@ void imguiRender() {
 			auto f = pfd::open_file("Choose files to read", DEFAULT_PATH,
 				{ "*.obj"});
 			std::cout << "Selected files:";
-			
-			auto temp = new PbrObj();
-			for (auto const& name : f.result()) {
-				temp->loadObj(name.c_str());
-				break;
+
+			auto vec = f.result();
+			if (vec.size() > 0) {
+
+				auto temp = new PbrObj();
+				temp->loadObj(vec[0].c_str());
+				auto defaultTexture = Texture::load("textures/black.png");
+				temp->albedoMap = *defaultTexture;
+				temp->ao_r_mMap = *defaultTexture;
+				temp->normalMap = *defaultTexture;
+				temp->setShader(*Shader::get("pbr,pbr"));
+				temp->name = "load";
 			}
-			auto defaultTexture = Texture::load("textures/black.png");
-			temp->albedo = *defaultTexture;
-			temp->ao_r_m = *defaultTexture;
-			temp->normal = *defaultTexture;
-			temp->setShader(*Shader::get("pbr,pbr"));
-			temp->name = "load";
 		}
 		if (ImGui::Button("Load HDR##3b")) {
 			auto f = pfd::open_file("Choose files to read", DEFAULT_PATH,
 				{ "*.hdr *.jpg *.png" });
 			std::cout << "Selected files:";
-
-			for (auto const& name : f.result()) {
-				loadPbrCubemap(name.c_str());
-				break;
+			auto vec = f.result();
+			if (vec.size() > 0) {
+				loadPbrCubemap(vec[0].c_str());
 			}
 		}
 		
-		ImGui::Spacing();
-		ImGui::SliderFloat("metallic", &metallic, 0.0f, 1.0f, "%.2f");
-		ImGui::SliderFloat("roughness", &roughness, 0.0f, 1.0f, "%.2f");
-		ImGui::BeginGroup();
-		ImGui::SliderFloat("ao", &ao, 0.0f, 1.0f, "%.2f");
-		ImGui::ColorEdit3("albedo##3", (float*)&albedo, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_HDR);
-		ImGui::EndGroup();
-		pbr->setUniform("metallic", metallic);
-		pbr->setUniform("roughness", roughness);
-		pbr->setUniform("ao", ao);
-		pbr->setUniform("albedo", albedo);
 
 		ImGui::TreePop();
 	}
@@ -752,8 +751,9 @@ void main(int argc, char** argv) // 윈도우 출력하고 콜백함수 설정
 
 
 GLvoid Reshape(int w, int h) {
-	printf("Reshape\n");
+	printf("Reshape %d %d\n", w,h);
 	glViewport(0, 0, w, h);
+	Window::get().init(w, h);
 	ImGui_ImplGLUT_ReshapeFunc(w, h);
 }
 
