@@ -77,7 +77,7 @@ public:
 	}
 };
 
-float lightAmount = 0.5f;
+float lightAmount = 0.2f;
 float u_blurAmount = 0.3f;
 namespace sterma {
 	FrameBuffer frameBuffer;

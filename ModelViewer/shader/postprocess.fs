@@ -39,7 +39,7 @@ void main(){
 	
 	
 	if (enalbe)
-		ocolor = texture(texture0, uv) + blur_color * u_lightAmount;
+		ocolor = mix(texture(texture0, uv), blur_color, u_lightAmount);
 	else
 		ocolor = texture(texture0, uv);
 	
