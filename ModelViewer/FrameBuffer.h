@@ -48,7 +48,8 @@ protected:
 	void bindShader() {
 		if (shader) {
 			shader->use();
-		} else {
+		}
+		else {
 			assert(0 && name.c_str()); // shader ¾øÀ½
 		}
 	}
@@ -69,14 +70,15 @@ void HelpMarker(const char* desc) {
 
 
 
-class CTextureRenderer : public TextureRenderer{
+class CTextureRenderer : public TextureRenderer {
 public:
 	virtual void init() {
-		
+
 	}
 };
 
-
+float lightAmount = 0.2f;
+float u_blurAmount = 0.3f;
 namespace sterma {
 	FrameBuffer frameBuffer;
 	CTextureRenderer texRenderer;
@@ -89,12 +91,12 @@ namespace sterma {
 	Texture* texture;
 
 	vec3 color = vec3(1);
-	bool hdr;
+	bool Bloom;
 
 	void Init() {
 		frame.init(Window::get().getW(), Window::get().getH());
 
-		
+
 		frameBuffer.init(Window::get().getW(), Window::get().getH());
 
 
@@ -121,17 +123,18 @@ namespace sterma {
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 
-
 		frame.unbind();
 
 		frame.bind();
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 
-
 		frame.unbind();*/
 
 		frameShader.setUniform("color", color);
+		frameShader.setUniform("u_lightAmount", lightAmount);
+		frameShader.setUniform("u_blurAmount", u_blurAmount);
+		frameShader.setUniform("enalbe", Bloom);
 
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		texRenderer.render();
@@ -143,10 +146,12 @@ namespace sterma {
 			static bool alpha_half_preview = false;
 			static bool drag_and_drop = true;
 			static bool options_menu = true;
-			ImGui::Checkbox("With HDR", &hdr); ImGui::SameLine(); HelpMarker("Currently all this does is to lift the 0..1 limits on dragging widgets.");
-			ImGuiColorEditFlags misc_flags = (hdr ? ImGuiColorEditFlags_HDR : 0) | (drag_and_drop ? 0 : ImGuiColorEditFlags_NoDragDrop) | (alpha_half_preview ? ImGuiColorEditFlags_AlphaPreviewHalf : (alpha_preview ? ImGuiColorEditFlags_AlphaPreview : 0)) | (options_menu ? 0 : ImGuiColorEditFlags_NoOptions);
+			ImGui::Checkbox("With Bloom", &Bloom); ImGui::SameLine(); HelpMarker("Pizza is good for you.");
+			ImGui::SliderFloat("lightAmount", &lightAmount, 0.0f, 1.0f, "%.2f");
+			ImGui::SliderFloat("blurAmount", &u_blurAmount, 0.0f, 0.4f, "%.2f");
+			ImGuiColorEditFlags misc_flags = (Bloom ? ImGuiColorEditFlags_HDR : 0) | (drag_and_drop ? 0 : ImGuiColorEditFlags_NoDragDrop) | (alpha_half_preview ? ImGuiColorEditFlags_AlphaPreviewHalf : (alpha_preview ? ImGuiColorEditFlags_AlphaPreview : 0)) | (options_menu ? 0 : ImGuiColorEditFlags_NoOptions);
 
-			ImGui::ColorEdit3("MyColor##3", (float*)&color, ImGuiColorEditFlags_NoInputs | misc_flags);
+			/*ImGui::ColorEdit3("MyColor##3", (float*)&color, ImGuiColorEditFlags_NoInputs | misc_flags);*/
 			ImGui::TreePop();
 		}
 	}
