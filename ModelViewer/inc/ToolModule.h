@@ -364,6 +364,11 @@ void Uniform<float>::apply() const {
 	glUniform1f(location, data);
 }
 template<>
+void Uniform<vec2>::apply() const {
+	if (location == -1) return;
+	glUniform2fv(location, 1, (GLfloat*)&data);
+}
+template<>
 void Uniform<vec3>::apply() const {
 	if (location == -1) return;
 	glUniform3fv(location, 1, (GLfloat*)&data);
@@ -498,6 +503,9 @@ public:
 	}
 	void setUniform(string name, float ptr) {
 		getUniformLocation<float>(name, ptr)->apply();
+	}
+	void setUniform(string name, const vec2& ptr) {
+		getUniformLocation<vec2>(name, ptr)->apply();
 	}
 	void setUniform(string name, const vec3& ptr) {
 		getUniformLocation<vec3>(name, ptr)->apply();

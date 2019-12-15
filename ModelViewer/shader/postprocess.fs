@@ -13,5 +13,5 @@ void main(){
 	if(texture(texture0, uv).r > 0.5f)
 		test = vec4(color, 1) * texture(texture0, uv).rgba;
 	// ocolor = test ;//+ texture(texture0, uv);
-	ocolor = texture(texture0, uv) + test*2f;	
+	ocolor = texture(texture0, uv);	
 }

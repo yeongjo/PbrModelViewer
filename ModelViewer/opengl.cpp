@@ -429,6 +429,8 @@ void initPbr() {
 	pbr->setUniform("albedoMap", *defaultTexture);
 	pbr->setUniform("ao_r_m", *defaultTexture);
 	pbr->setUniform("normalMap", *defaultTexture);
+
+	//glDepthFunc(GL_LESS);
 }
 
 void init() {
@@ -441,8 +443,7 @@ void init() {
 
 	
 
-	/*glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);*/
+	
 
 	// During init, enable debug output
 	glEnable(GL_DEBUG_OUTPUT);
@@ -477,6 +478,10 @@ void init() {
 
 
 	initPbr();
+
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
 	auto pbr = Shader::get("pbr,pbr");
 
 	for (size_t i = 0; i < 4; i++) {
@@ -492,10 +497,11 @@ void init() {
 	triObj->setScale(vec3(9));
 	triObj->name = "gun";*/
 	auto defaultTex = Texture::load("textures/black.png");
+	auto fractal = Shader::create("tri", "fractal");
 
 	floorObj = new PbrObj();
 	floorObj->loadObj("model/cube.obj");
-	floorObj->setShader(*pbr);
+	floorObj->setShader(*fractal);
 	floorObj->setScale(vec3(5, 0.1f, 5));
 	floorObj->setPos(vec3(-1, 0, 0));
 	floorObj->name = "floor";
@@ -574,7 +580,9 @@ void loop() {
 	glutPostRedisplay();
 }
 
-
+vec2 fractalOffset = vec2(0, 0);
+float fractalZoom = 1;
+vec2 fractalJc = vec2(0, 0);
 void imguiRender() {
 	auto pbr = Shader::get("pbr,pbr");
 	// Main body of the Demo window starts here.
@@ -616,6 +624,12 @@ void imguiRender() {
 			}
 		}
 		
+		ImGui::DragFloat2("offset", (float*)&fractalOffset, 0.001f);
+		ImGui::DragFloat("zoom", (float*)&fractalZoom, 0.001f);
+		ImGui::DragFloat2("jc", (float*)&fractalJc, 0.05f);
+		Shader::get("tri,fractal")->setUniform("offset", fractalOffset);
+		Shader::get("tri,fractal")->setUniform("zoom", fractalZoom);
+		Shader::get("tri,fractal")->setUniform("jc", fractalJc);
 
 		ImGui::TreePop();
 	}
@@ -752,9 +766,9 @@ void main(int argc, char** argv) // 윈도우 출력하고 콜백함수 설정
 
 GLvoid Reshape(int w, int h) {
 	printf("Reshape %d %d\n", w,h);
-	glViewport(0, 0, w, h);
 	Window::get().init(w, h);
 	ImGui_ImplGLUT_ReshapeFunc(w, h);
+	glViewport(0, 0, w, h);
 }
 
 void exit() {
