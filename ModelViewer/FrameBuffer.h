@@ -48,7 +48,8 @@ protected:
 	void bindShader() {
 		if (shader) {
 			shader->use();
-		} else {
+		}
+		else {
 			assert(0 && name.c_str()); // shader ¾øÀ½
 		}
 	}
@@ -69,10 +70,10 @@ void HelpMarker(const char* desc) {
 
 
 
-class CTextureRenderer : public TextureRenderer{
+class CTextureRenderer : public TextureRenderer {
 public:
 	virtual void init() {
-		
+
 	}
 };
 
@@ -95,7 +96,7 @@ namespace sterma {
 	void Init() {
 		frame.init(Window::get().getW(), Window::get().getH());
 
-		
+
 		frameBuffer.init(Window::get().getW(), Window::get().getH());
 
 
@@ -120,18 +121,18 @@ namespace sterma {
 	void render() {
 		/*frame.bind();
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-		
+
 
 		frame.unbind();
 
 		frame.bind();
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-		
+
 
 		frame.unbind();*/
 
 		frameShader.setUniform("color", color);
-		frameShader.setUniform("u_lightAmount", lightAmount);		
+		frameShader.setUniform("u_lightAmount", lightAmount);
 		frameShader.setUniform("u_blurAmount", u_blurAmount);
 		frameShader.setUniform("enalbe", Bloom);
 
@@ -146,7 +147,7 @@ namespace sterma {
 			static bool drag_and_drop = true;
 			static bool options_menu = true;
 			ImGui::Checkbox("With Bloom", &Bloom); ImGui::SameLine(); HelpMarker("Pizza is good for you.");
-			ImGui::SliderFloat("lightAmount", &lightAmount, 0.0f, 1.0f, "%.2f");			
+			ImGui::SliderFloat("lightAmount", &lightAmount, 0.0f, 1.0f, "%.2f");
 			ImGui::SliderFloat("blurAmount", &u_blurAmount, 0.0f, 0.4f, "%.2f");
 			ImGuiColorEditFlags misc_flags = (Bloom ? ImGuiColorEditFlags_HDR : 0) | (drag_and_drop ? 0 : ImGuiColorEditFlags_NoDragDrop) | (alpha_half_preview ? ImGuiColorEditFlags_AlphaPreviewHalf : (alpha_preview ? ImGuiColorEditFlags_AlphaPreview : 0)) | (options_menu ? 0 : ImGuiColorEditFlags_NoOptions);
 
