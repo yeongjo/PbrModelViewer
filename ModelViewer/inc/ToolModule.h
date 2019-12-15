@@ -98,6 +98,7 @@ public:
 	string name;
 
 	TickObj() { uniqueId = uniqueIdCounter++;  Scene::addObj(this); }
+	virtual ~TickObj(){}
 	void remove(){ bIsRemoved = true; }
 	bool getIsRemoved() const { return bIsRemoved; }
 	virtual void tick(float dt) = 0;
@@ -175,7 +176,7 @@ public:
 
 	void setData(Camera& cam, Window& win);
 
-	// 값변경될때마다 한번만 호출하면되나
+	// 값변경될때마다 한번만 호출하면 됨
 	void bindBuffer() {
 		glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(glm::mat4), p);
 		glBufferSubData(GL_UNIFORM_BUFFER, sizeof(glm::mat4), sizeof(glm::mat4), v);

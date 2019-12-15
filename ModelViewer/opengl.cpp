@@ -189,6 +189,94 @@ public:
 	}
 };
 
+class PbrPhysicsObj : public PbrObj {
+public:
+	btRigidBody* body;
+	float mass;
+	vec3 physicsOrigin;
+
+	virtual ~PbrPhysicsObj() {
+		Bullet::dynamicsWorld->removeRigidBody(body);
+	}
+
+	void setBoxPhysics(float mass, const vec3& origin = vec3(0), const vec3& boxSize = vec3(1)) {
+		btVector3 localInertia(0, 0, 0);
+		bool isDynamic = (mass != 0.f);
+		physicsOrigin = origin;
+
+		btTransform startTransform;
+		startTransform.setIdentity();
+		startTransform.setOrigin(btVector3(origin.x + pos.x, origin.y + pos.y, origin.z + pos.z));
+
+		btCollisionShape* colShape = new btBoxShape(btVector3(boxSize.x, boxSize.y, boxSize.z));
+		if (isDynamic)
+			colShape->calculateLocalInertia(mass, localInertia);
+
+		//using motionstate is recommended, it provides interpolation capabilities, and only synchronizes 'active' objects
+		btDefaultMotionState* myMotionState = new btDefaultMotionState(startTransform);
+		btRigidBody::btRigidBodyConstructionInfo rbInfo(mass, myMotionState, colShape, localInertia);
+
+		this->mass = mass;
+		body = new btRigidBody(rbInfo);
+		Bullet::dynamicsWorld->addRigidBody(body);
+	}
+
+	void setSpherePhysics(float mass, const vec3& origin = vec3(0), const vec3& boxSize = vec3(1)) {
+		btVector3 localInertia(0, 0, 0);
+		bool isDynamic = (mass != 0.f);
+		physicsOrigin = origin;
+
+		btTransform startTransform;
+		startTransform.setIdentity();
+		startTransform.setOrigin(btVector3(origin.x + pos.x, origin.y + pos.y, origin.z + pos.z));
+
+		btCollisionShape* colShape = new btSphereShape(boxSize.x);
+		if (isDynamic)
+			colShape->calculateLocalInertia(mass, localInertia);
+
+		//using motionstate is recommended, it provides interpolation capabilities, and only synchronizes 'active' objects
+		btDefaultMotionState* myMotionState = new btDefaultMotionState(startTransform);
+		btRigidBody::btRigidBodyConstructionInfo rbInfo(mass, myMotionState, colShape, localInertia);
+
+		this->mass = mass;
+		body = new btRigidBody(rbInfo);
+		Bullet::dynamicsWorld->addRigidBody(body);
+	}
+
+	void tick(float dt) {
+		Obj::tick(dt);
+		if (body && body->getMotionState()) {
+			btTransform trans;
+			body->getMotionState()->getWorldTransform(trans);
+			pos = vec3(float(trans.getOrigin().getX()), float(trans.getOrigin().getY()), float(trans.getOrigin().getZ())) - physicsOrigin;
+
+			btQuaternion temRot = trans.getRotation();
+			quat q = toQuat(temRot);
+			quat_2_euler_ogl(q, rot.x, rot.z, rot.y);
+			rot = degrees(rot);
+
+			/*if (name == (char*)"Robot") {
+				cout << glm::to_string(pos) << endl;
+			}*/
+		}
+	}
+
+	void move(vec3 vec) {
+		body->translate(btVector3(vec.x, vec.y, vec.z));
+		//body->translate
+	}
+
+	void rotate(vec3 vec) {
+		btTransform trans;
+		trans = body->getWorldTransform();
+		btQuaternion quaternion;
+		quaternion.setEuler(vec.y, vec.x, vec.z);
+		trans.setRotation(quaternion);
+		body->setWorldTransform(trans);
+		body->setAngularVelocity(btVector3(0, 0, 0));
+	}
+};
+
 class ShapeObj : public PbrObj {
 public:
 	float speed = 6;
@@ -307,7 +395,8 @@ VO gridVO;
 
 ShapeObj* triObj;
 vector<ShapeObj*> orbits;
-PbrObj* floorObj;
+vector<PbrPhysicsObj*> physicsObjs;
+PbrPhysicsObj* floorObj;
 
 Light* light[4];
 
@@ -441,7 +530,7 @@ void init() {
 	gridShader.complie("grid");
 
 
-	
+	Input::mouse[EMouse::MOUSE_WHEEL] = -20;
 
 	
 
@@ -499,11 +588,12 @@ void init() {
 	auto defaultTex = Texture::load("textures/black.png");
 	auto fractal = Shader::create("tri", "fractal");
 
-	floorObj = new PbrObj();
+	floorObj = new PbrPhysicsObj();
 	floorObj->loadObj("model/cube.obj");
 	floorObj->setShader(*fractal);
 	floorObj->setScale(vec3(5, 0.1f, 5));
 	floorObj->setPos(vec3(-1, 0, 0));
+	floorObj->setBoxPhysics(0, vec3(0), vec3(5, 0.1f, 5));
 	floorObj->name = "floor";
 	floorObj->setTextures(*defaultTex, *defaultTex, *defaultTex);
 
@@ -519,6 +609,20 @@ void init() {
 		var->color = vec4(f(), f(), f(), f());
 		var->name = "sphere";
 		var->setTextures(*defaultTex, *defaultTex, *defaultTex);
+	}
+
+	physicsObjs.push_back(new PbrPhysicsObj());
+	physicsObjs.push_back(new PbrPhysicsObj());
+	physicsObjs.push_back(new PbrPhysicsObj());
+	for (auto var : physicsObjs) {
+		armLen += 3;
+		var->setPos(vec3(0.01f* armLen, armLen, 0));
+		var->setShader(*pbr);
+		var->loadObj("model/sphere.obj");
+		var->setSpherePhysics(1);
+		var->name = "PbrPhysicsObj";
+		var->setTextures(*defaultTex, *defaultTex, *defaultTex);
+
 	}
 
 
@@ -702,7 +806,7 @@ void main(int argc, char** argv) // 윈도우 출력하고 콜백함수 설정
 { //--- 윈도우 생성하기
 	glutInit(&argc, argv); // glut 초기화
 	glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA | GLUT_DEPTH); // 디스플레이 모드 설정
-	Window win(800, 600);
+	Window win(1500, 1000);
 	glutInitWindowPosition(0, 30); // 윈도우의 위치 지정
 	glutInitWindowSize(win.getW(), win.getH()); // 윈도우의 크기 지정
 	glutInitContextFlags(GLUT_FORWARD_COMPATIBLE
@@ -751,12 +855,12 @@ void main(int argc, char** argv) // 윈도우 출력하고 콜백함수 설정
 	Bullet::initBullet();
 	//gDebugDrawer.setDebugMode(~0);
 	//Bullet::dynamicsWorld->setDebugDrawer(&gDebugDrawer);
+	bindInput();
 	init();
 
 	glutDisplayFunc(drawScene); // 출력 함수의 지정
 	glutReshapeFunc(Reshape); // 다시 그리기 함수 지정
 
-	bindInput();
 
 	timerFunc(1);
 
@@ -768,7 +872,7 @@ GLvoid Reshape(int w, int h) {
 	printf("Reshape %d %d\n", w,h);
 	Window::get().init(w, h);
 	ImGui_ImplGLUT_ReshapeFunc(w, h);
-	glViewport(0, 0, w, h);
+	Window::get().resetViewport();
 }
 
 void exit() {
