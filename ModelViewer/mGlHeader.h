@@ -246,22 +246,36 @@ VO* readObj(const char* file_path) {
 			for (size_t v = 0; v < fv; v++) {
 				// access to vertex
 				tinyobj::index_t idx = shapes[s].mesh.indices[index_offset + v];
-				tinyobj::real_t vx = attrib.vertices[3 * idx.vertex_index + 0];
-				tinyobj::real_t vy = attrib.vertices[3 * idx.vertex_index + 1];
-				tinyobj::real_t vz = attrib.vertices[3 * idx.vertex_index + 2];
-				tinyobj::real_t nx = attrib.normals[3 * idx.normal_index + 0];
-				tinyobj::real_t ny = attrib.normals[3 * idx.normal_index + 1];
-				tinyobj::real_t nz = attrib.normals[3 * idx.normal_index + 2];
-				tinyobj::real_t tx = attrib.texcoords[2 * idx.texcoord_index + 0];
-				tinyobj::real_t ty = attrib.texcoords[2 * idx.texcoord_index + 1];
+				tinyobj::real_t vx;
+				tinyobj::real_t vy;
+				tinyobj::real_t vz;
+				tinyobj::real_t nx;
+				tinyobj::real_t ny;
+				tinyobj::real_t nz;
+				tinyobj::real_t tx;
+				tinyobj::real_t ty;
+				if (idx.vertex_index >= 0) {
+					vx = attrib.vertices[3 * idx.vertex_index + 0];
+					vy = attrib.vertices[3 * idx.vertex_index + 1];
+					vz = attrib.vertices[3 * idx.vertex_index + 2];
+					vo->vertex.push_back(vec3(vx, vy, vz));
+				}
+				if (idx.normal_index >= 0) {
+					nx = attrib.normals[3 * idx.normal_index + 0];
+					ny = attrib.normals[3 * idx.normal_index + 1];
+					nz = attrib.normals[3 * idx.normal_index + 2];
+					vo->normal.push_back(vec3(nx, ny, nz));
+				}
+				if (idx.texcoord_index >= 0) {
+					tx = attrib.texcoords[2 * idx.texcoord_index + 0];
+					ty = attrib.texcoords[2 * idx.texcoord_index + 1];
+					vo->uv.push_back(vec2(tx, ty));
+				}
 				// Optional: vertex colors
 				//tinyobj::real_t red = attrib.colors[3 * idx.vertex_index + 0];
 				//tinyobj::real_t green = attrib.colors[3 * idx.vertex_index + 1];
 				//tinyobj::real_t blue = attrib.colors[3 * idx.vertex_index + 2];
 
-				vo->vertex.push_back(vec3(vx, vy, vz));
-				vo->normal.push_back(vec3(nx, ny, nz));
-				vo->uv.push_back(vec2(tx, ty));
 			}
 			index_offset += fv;
 
